@@ -1,72 +1,73 @@
 {
-  "name": "obsidian-mcp-server",
-  "version": "1.5.8",
-  "description": "Model Context Protocol (MCP) server designed for LLMs to interact with Obsidian vaults. Provides secure, token-aware tools for seamless knowledge base management through a standardized interface.",
+  "name": "mcp-ts-template",
+  "version": "1.1.1",
+  "description": "TypeScript template for building Model Context Protocol (MCP) servers & clients. A beginner-friendly, production-ready starting point with essential utilities, examples, and type safety. Copy this repo to kickstart your own MCP server and set your **vibe code** session up for success!",
   "main": "dist/index.js",
   "files": [
     "dist"
   ],
   "bin": {
-    "obsidian-mcp-server": "dist/index.js"
+    "mcp-ts-template": "./dist/index.js"
   },
   "type": "module",
-  "engines": {
-    "node": ">=18.0.0"
-  },
   "repository": {
     "type": "git",
-    "url": "git+ssh://git@github.com/cyanheads/obsidian-mcp-server.git"
+    "url": "git+https://github.com/cyanheads/mcp-ts-template.git"
   },
   "bugs": {
-    "url": "https://github.com/cyanheads/obsidian-mcp-server/issues"
+    "url": "https://github.com/cyanheads/mcp-ts-template/issues"
   },
-  "homepage": "https://github.com/cyanheads/obsidian-mcp-server#readme",
+  "homepage": "https://github.com/cyanheads/mcp-ts-template#readme",
   "scripts": {
-    "build": "tsc",
-    "postbuild": "node -e \"if (process.platform !== 'win32') require('fs').chmodSync('dist/index.js', '755')\"",
+    "build": "tsc && node --loader ts-node/esm scripts/make-executable.ts dist/index.js",
     "start": "node dist/index.js",
-    "start:stdio": "LOG_LEVEL=debug MCP_TRANSPORT_TYPE=stdio node dist/index.js",
-    "start:http": "LOG_LEVEL=debug MCP_TRANSPORT_TYPE=http node dist/index.js",
-    "dev": "tsc -w",
-    "clean": "npx ts-node scripts/clean.ts",
-    "rebuild": "npm run clean && npm run build",
-    "tree": "npx ts-node --esm scripts/tree.ts"
+    "start:stdio": "MCP_LOG_LEVEL=debug MCP_TRANSPORT_TYPE=stdio node dist/index.js",
+    "start:http": "MCP_LOG_LEVEL=debug MCP_TRANSPORT_TYPE=http node dist/index.js",
+    "rebuild": "ts-node --esm scripts/clean.ts && npm run build",
+    "fetch:spec": "ts-node --esm scripts/fetch-openapi-spec.ts",
+    "docs:generate": "typedoc",
+    "tree": "ts-node --esm scripts/tree.ts"
   },
   "dependencies": {
-    "@modelcontextprotocol/sdk": "^1.10.2",
-    "@types/node": "^22.15.3",
-    "@typescript-eslint/eslint-plugin": "^8.31.1",
-    "@typescript-eslint/parser": "^8.31.1",
+    "@modelcontextprotocol/sdk": "^1.11.0",
+    "@types/jsonwebtoken": "^9.0.9",
+    "@types/sanitize-html": "^2.15.0",
+    "@types/validator": "13.15.0",
     "axios": "^1.9.0",
     "chrono-node": "^2.8.0",
     "dotenv": "^16.5.0",
-    "eslint": "^9.25.1",
-    "eslint-config-prettier": "^10.1.2",
-    "eslint-plugin-prettier": "^5.2.6",
-    "nanoid": "^5.1.5",
-    "p-limit": "^6.2.0",
-    "prettier": "^3.5.3",
+    "express": "^5.1.0",
+    "ignore": "^7.0.4",
+    "jsonwebtoken": "^9.0.2",
+    "openai": "^4.96.2",
+    "partial-json": "^0.1.7",
+    "sanitize-html": "^2.16.0",
     "tiktoken": "^1.0.21",
+    "ts-node": "^10.9.2",
     "typescript": "^5.8.3",
+    "validator": "13.15.0",
     "winston": "^3.17.0",
-    "yaml": "^2.7.1",
+    "winston-daily-rotate-file": "^5.0.0",
+    "yargs": "^17.7.2",
     "zod": "^3.24.3"
   },
   "keywords": [
-    "mcp",
-    "obsidian",
-    "llm",
-    "llm-agent",
-    "ai",
-    "claude",
-    "model-context-protocol",
-    "mcp-server",
     "typescript",
     "template",
+    "MCP",
+    "model-context-protocol",
+    "vibe-code",
+    "LLM",
     "AI-integration",
-    "server",
-    "knowledge-base"
+    "server"
   ],
   "author": "Casey Hand @cyanheads",
-  "license": "Apache-2.0"
+  "license": "Apache-2.0",
+  "devDependencies": {
+    "@types/express": "^5.0.1",
+    "@types/js-yaml": "^4.0.9",
+    "@types/node": "^22.15.3",
+    "js-yaml": "^4.1.0",
+    "typedoc": "^0.28.3"
+  }
 }
