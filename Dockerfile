@@ -1,63 +1,47 @@
-# ---- Builder Stage ----
-FROM node:22-slim AS builder
+# ---- Base Node ----
+# Use a specific Node.js version known to work, Alpine for smaller size
+FROM node:23-alpine AS base
+WORKDIR /usr/src/app
+ENV NODE_ENV=production
 
-# Set working directory
-WORKDIR /app
-
-# Install dependencies
-# Copy package files first for better caching
+# ---- Dependencies ----
+# Install dependencies first to leverage Docker cache
+FROM base AS deps
+WORKDIR /usr/src/app
 COPY package.json package-lock.json* ./
-# Install all dependencies (including devDependencies needed for build)
-RUN npm install --production=false
+# Use npm ci for deterministic installs based on lock file
+# Install only production dependencies in this stage for the final image
+RUN npm ci --only=production
 
-# Copy source code
-COPY . .
-
+# ---- Builder ----
 # Build the application
+FROM base AS builder
+WORKDIR /usr/src/app
+# Copy dependency manifests and install *all* dependencies (including dev)
+COPY package.json package-lock.json* ./
+RUN npm ci
+# Copy the rest of the source code
+COPY . .
+# Build the TypeScript project
 RUN npm run build
 
-# Remove devDependencies after build
-RUN npm prune --production
+# ---- Runner ----
+# Final stage with only production dependencies and built code
+FROM base AS runner
+WORKDIR /usr/src/app
+# Copy production node_modules from the 'deps' stage
+COPY --from=deps /usr/src/app/node_modules ./node_modules
+# Copy built application from the 'builder' stage
+COPY --from=builder /usr/src/app/dist ./dist
+# Copy package.json (needed for potential runtime info, like version)
+COPY package.json .
 
+# Create a non-root user and switch to it
+RUN addgroup -S appgroup && adduser -S appuser -G appgroup
+USER appuser
 
-# ---- Final Stage ----
-FROM node:22-slim
-
-ENV NODE_ENV=production \
-    PATH="/home/service-user/.local/bin:${PATH}" \
-    OBSIDIAN_API_KEY="abc"
-
-# Install mcp-proxy globally for runtime use
-# Combine update, install, and clean in one layer
-RUN apt-get update && \
-    apt-get install -y --no-install-recommends curl && \
-    npm install -g mcp-proxy@2.10.6 && \
-    npm cache clean --force && \
-    apt-get purge -y --auto-remove curl && \
-    apt-get clean && \
-    rm -rf /var/lib/apt/lists/* /tmp/* /var/tmp/*
-
-# Create non-root user and group
-# Create app directory and set permissions
-RUN groupadd --system --gid 1987 service-user && \
-    useradd --system --uid 1987 --gid service-user -m service-user && \
-    mkdir -p /app && \
-    chown -R service-user:service-user /app
-
-# Set working directory
-WORKDIR /app
-
-# Copy necessary artifacts from builder stage
-COPY --from=builder --chown=service-user:service-user /app/package.json ./package.json
-COPY --from=builder --chown=service-user:service-user /app/node_modules ./node_modules
-COPY --from=builder --chown=service-user:service-user /app/build ./build
-
-# Switch to non-root user
-USER service-user
-
-# Expose port if necessary (Update port number if your app uses a different one)
+# Expose port if the application runs a server (adjust if needed)
 # EXPOSE 3000
 
-# Define the command to run the application
-# CMD ["mcp-proxy", "node", "build/index.js"] # Keep original for reference
-CMD ["node", "build/index.js"]
+# Command to run the application
+CMD ["node", "dist/index.js"]

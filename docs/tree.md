@@ -1,55 +1,76 @@
 # obsidian-mcp-server - Directory Structure
 
-Generated on: 2025-04-23 10:30:30
+Generated on: 2025-05-02 19:19:25
 
 
 ```
 obsidian-mcp-server
-├── backups
 ├── docs
+    ├── obsidian-api
+    │   ├── obsidian_rest_api_spec.json
+    │   └── obsidian_rest_api_spec.yaml
     └── tree.md
 ├── scripts
     ├── clean.ts
+    ├── fetch-openapi-spec.ts
+    ├── make-executable.ts
     └── tree.ts
 ├── src
-    ├── mcp
-    │   ├── handlers.ts
-    │   ├── index.ts
-    │   ├── server.ts
-    │   └── types.ts
-    ├── obsidian
-    │   ├── client.ts
-    │   ├── errors.ts
-    │   ├── index.ts
-    │   └── types.ts
-    ├── resources
-    │   ├── index.ts
-    │   ├── tags.ts
-    │   └── types.ts
-    ├── tools
-    │   ├── files
-    │   │   ├── content.ts
-    │   │   ├── index.ts
-    │   │   └── list.ts
-    │   ├── properties
-    │   │   ├── index.ts
-    │   │   ├── manager.ts
-    │   │   ├── tools.ts
-    │   │   └── types.ts
-    │   ├── search
-    │   │   ├── complex.ts
-    │   │   ├── index.ts
-    │   │   └── simple.ts
-    │   ├── base.ts
+    ├── config
     │   └── index.ts
+    ├── mcp-server
+    │   ├── resources
+    │   │   └── echoResource
+    │   │   │   ├── echoResourceLogic.ts
+    │   │   │   ├── index.ts
+    │   │   │   └── registration.ts
+    │   ├── tools
+    │   │   └── echoTool
+    │   │   │   ├── echoToolLogic.ts
+    │   │   │   ├── index.ts
+    │   │   │   └── registration.ts
+    │   ├── transports
+    │   │   ├── authentication
+    │   │   │   └── authMiddleware.ts
+    │   │   ├── httpTransport.ts
+    │   │   └── stdioTransport.ts
+    │   ├── .DS_Store
+    │   └── server.ts
+    ├── services
+    │   └── obsidianRestAPI
+    │   │   ├── methods
+    │   │       ├── activeFileMethods.ts
+    │   │       ├── commandMethods.ts
+    │   │       ├── openMethods.ts
+    │   │       ├── patchMethods.ts
+    │   │       ├── periodicNoteMethods.ts
+    │   │       ├── searchMethods.ts
+    │   │       └── vaultMethods.ts
+    │   │   ├── index.ts
+    │   │   ├── service.ts
+    │   │   └── types.ts
+    ├── types-global
+    │   └── errors.ts
     ├── utils
-    │   ├── errors.ts
-    │   ├── idGenerator.ts
-    │   ├── index.ts
-    │   ├── logging.ts
-    │   ├── rate-limiting.ts
-    │   ├── tokenization.ts
-    │   └── validation.ts
+    │   ├── internal
+    │   │   ├── errorHandler.ts
+    │   │   ├── index.ts
+    │   │   ├── logger.ts
+    │   │   └── requestContext.ts
+    │   ├── metrics
+    │   │   ├── index.ts
+    │   │   └── tokenCounter.ts
+    │   ├── parsing
+    │   │   ├── dateParser.ts
+    │   │   ├── index.ts
+    │   │   └── jsonParser.ts
+    │   ├── security
+    │   │   ├── idGenerator.ts
+    │   │   ├── index.ts
+    │   │   ├── rateLimiter.ts
+    │   │   └── sanitization.ts
+    │   └── index.ts
+    ├── .DS_Store
     └── index.ts
 ├── debug.js
 ├── Dockerfile
@@ -60,7 +81,8 @@ obsidian-mcp-server
 ├── package.json
 ├── README.md
 ├── repomix.config.json
-└── tsconfig.json
+├── tsconfig.json
+└── typedoc.json
 
 ```
 

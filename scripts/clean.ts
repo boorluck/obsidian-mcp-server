@@ -9,10 +9,9 @@
  *   By default, it removes the 'dist' and 'logs' directories if they exist.
  * 
  * Usage:
- *   - Add to package.json: "clean": "node dist/scripts/clean.js"
- *   - Can be run directly: npm run clean
- *   - Often used in rebuild scripts: "rebuild": "npm run clean && npm run build"
- *   - Can be used with arguments to specify custom directories: node dist/scripts/clean.js temp coverage
+ *   - Add to package.json: "clean": "ts-node --esm scripts/clean.ts" (or similar)
+ *   - Often used in rebuild scripts: "rebuild": "ts-node --esm scripts/clean.ts && npm run build"
+ *   - Can be used with arguments to specify custom directories: ts-node --esm scripts/clean.ts temp coverage
  * 
  * Platform compatibility:
  *   - Works on all platforms (Windows, macOS, Linux) using Node.js path normalization
