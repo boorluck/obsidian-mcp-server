@@ -1,7 +1,7 @@
 import { z } from 'zod';
 import path from 'node:path'; // Import path module
-import { logger, RequestContext } from '../../../utils/index.js';
-import { ObsidianRestApiService } from '../../../services/obsidianRestAPI/index.js';
+import { logger, RequestContext } from '../../../utils/index.js'; // Removed unused stat formatter import
+import { ObsidianRestApiService } from '../../../services/obsidianRestAPI/index.js'; // Removed unused NoteJson/NoteStat imports
 import { BaseErrorCode, McpError } from '../../../types-global/errors.js';
 
 // --- Schema and Type Definitions ---
@@ -25,19 +25,54 @@ export const ObsidianListFilesInputSchema = z.object({
 
 export type ObsidianListFilesInput = z.infer<typeof ObsidianListFilesInputSchema>;
 
-// Response is an array of strings (file/directory names)
-export type ObsidianListFilesResponse = string[];
+// --- Updated Response Type ---
+export interface ObsidianListFilesResponse {
+    directoryPath: string; // The path that was listed
+    tree: string;          // Formatted tree string representation
+    totalEntries: number; // Total count of files/dirs listed
+}
+
+// --- Helper Function to Format as Tree ---
+function formatAsTree(fileNames: string[]): string {
+    if (!fileNames || fileNames.length === 0) {
+        return '(empty directory)';
+    }
+
+    // Sort directories first, then files, alphabetically within type
+    fileNames.sort((a, b) => {
+        const aIsDir = a.endsWith('/');
+        const bIsDir = b.endsWith('/');
+        if (aIsDir && !bIsDir) return -1;
+        if (!aIsDir && bIsDir) return 1;
+        // Extract base names for comparison (remove trailing slash for dirs)
+        const nameA = aIsDir ? a.slice(0, -1) : a;
+        const nameB = bIsDir ? b.slice(0, -1) : b;
+        return nameA.localeCompare(nameB);
+    });
+
+    let treeString = '';
+    const lastIndex = fileNames.length - 1;
+
+    fileNames.forEach((name, index) => {
+        const prefix = index === lastIndex ? '└── ' : '├── ';
+        treeString += prefix + name + (index === lastIndex ? '' : '\n');
+    });
+
+    return treeString;
+}
+
 
 // --- Core Logic Function ---
 
 /**
  * Processes the core logic for listing files in an Obsidian vault directory.
+ * Returns detailed information including file stats.
  *
  * @function processObsidianListFiles
  * @param {ObsidianListFilesInput} params - The validated input parameters.
  * @param {RequestContext} context - The request context for logging and tracing.
  * @param {ObsidianRestApiService} obsidianService - The Obsidian REST API service instance.
- * @returns {Promise<ObsidianListFilesResponse>} An array of file and directory names.
+ * @returns {Promise<ObsidianListFilesResponse>} An object containing directory path, tree string, and entry count.
  * @throws {McpError} If the directory cannot be listed or the API request fails.
  */
 export const processObsidianListFiles = async (
@@ -48,39 +83,48 @@ export const processObsidianListFiles = async (
   // Destructure params
   const { dirPath, fileExtensionFilter, nameRegexFilter } = params;
   // Define dirPathForLog once for logging and error messages
-  const dirPathForLog = dirPath === "" ? "/" : dirPath;
+  const dirPathForLog = dirPath === "" || dirPath === "/" ? "/" : dirPath;
   logger.debug(`Processing obsidian_list_files request for path: ${dirPathForLog}`, { ...context, fileExtensionFilter, nameRegexFilter });
 
   try {
     const effectiveDirPath = dirPath === "" ? "/" : dirPath;
-    let files = await obsidianService.listFiles(effectiveDirPath, context);
-    logger.debug(`Successfully listed ${files.length} initial items in: ${dirPathForLog}`, context);
+    let fileNames = await obsidianService.listFiles(effectiveDirPath, context);
+    logger.debug(`Successfully listed ${fileNames.length} initial items in: ${dirPathForLog}`, context);
 
     // Apply extension filter if provided
     if (fileExtensionFilter && fileExtensionFilter.length > 0) {
-      files = files.filter(file => {
+      fileNames = fileNames.filter(fileName => {
         // Always include directories (they end with '/')
-        if (file.endsWith('/')) return true;
+        if (fileName.endsWith('/')) return true;
         // Check if file extension matches any in the filter array
-        const extension = path.extname(file); // Use path.extname
+        const extension = path.extname(fileName); // Use path.extname
         return fileExtensionFilter.includes(extension);
       });
-      logger.debug(`Applied extension filter, ${files.length} items remaining.`, { ...context, fileExtensionFilter });
+      logger.debug(`Applied extension filter, ${fileNames.length} items remaining.`, { ...context, fileExtensionFilter });
     }
 
     // Apply regex filter if provided
     if (nameRegexFilter) {
       try {
         const regex = new RegExp(nameRegexFilter);
-        files = files.filter(file => regex.test(file));
-        logger.debug(`Applied regex filter, ${files.length} items remaining.`, { ...context, nameRegexFilter });
+        fileNames = fileNames.filter(fileName => regex.test(fileName));
+        logger.debug(`Applied regex filter, ${fileNames.length} items remaining.`, { ...context, nameRegexFilter });
       } catch (regexError) {
          logger.error(`Invalid regex pattern provided: ${nameRegexFilter}`, regexError instanceof Error ? regexError : undefined, context);
          throw new McpError(BaseErrorCode.VALIDATION_ERROR, `Invalid regex pattern provided for nameRegexFilter: ${nameRegexFilter}`, context);
       }
     }
 
-    return files;
+    const totalEntries = fileNames.length;
+
+    // Format the filtered list as a tree string
+    const treeString = formatAsTree(fileNames);
+
+    return {
+        directoryPath: dirPathForLog,
+        tree: treeString,
+        totalEntries: totalEntries,
+    };
 
   } catch (error) {
     // Errors from obsidianService are already handled and logged
