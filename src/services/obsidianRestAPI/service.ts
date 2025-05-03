@@ -6,6 +6,7 @@
  */
 
 import axios, { AxiosError, AxiosInstance, AxiosRequestConfig } from 'axios';
+import https from 'node:https'; // Import the https module for Agent configuration
 import { config } from '../../config/index.js';
 import { BaseErrorCode, McpError } from '../../types-global/errors.js';
 import { ErrorHandler, logger, RequestContext } from '../../utils/index.js';
@@ -51,9 +52,13 @@ export class ObsidianRestApiService {
         'Accept': 'application/json', // Default accept type
       },
       timeout: 15000, // Default timeout of 15 seconds
+      // Configure httpsAgent to handle SSL verification based on config
+      httpsAgent: new https.Agent({
+        rejectUnauthorized: config.obsidianVerifySsl, // Use the boolean value from config
+      }),
     });
 
-    logger.info(`ObsidianRestApiService initialized with base URL: ${this.axiosInstance.defaults.baseURL}`, { operation: 'ObsidianServiceInit' });
+    logger.info(`ObsidianRestApiService initialized with base URL: ${this.axiosInstance.defaults.baseURL}, Verify SSL: ${config.obsidianVerifySsl}`, { operation: 'ObsidianServiceInit' });
   }
 
   /**

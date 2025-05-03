@@ -36,6 +36,10 @@ const EnvSchema = z.object({
   // --- Obsidian Specific Config ---
   OBSIDIAN_API_KEY: z.string().min(1, "OBSIDIAN_API_KEY cannot be empty"), // Required, non-empty string
   OBSIDIAN_BASE_URL: z.string().url().default('http://127.0.0.1:27123'), // Optional, defaults to insecure HTTP
+  OBSIDIAN_VERIFY_SSL: z.string() // Treat env var as string ('true'/'false')
+    .transform(val => val.toLowerCase() === 'true') // Convert to boolean
+    .optional()
+    .default('true'), // Default to true (verify SSL)
 });
 
 // Parse and validate environment variables
@@ -138,6 +142,14 @@ export const config = {
    * Default: "http://127.0.0.1:27123"
    */
   obsidianBaseUrl: env.OBSIDIAN_BASE_URL,
+
+  /**
+   * Whether to verify the SSL certificate of the Obsidian Local REST API server.
+   * Set to false if using HTTPS with a self-signed certificate.
+   * Controlled by OBSIDIAN_VERIFY_SSL env var ('true' or 'false').
+   * Default: true
+   */
+  obsidianVerifySsl: env.OBSIDIAN_VERIFY_SSL,
 
   // Note: Logger-specific configurations (LOG_FILE_PATH, LOG_MAX_FILES, etc.)
   //       are typically handled directly within the logger utility (src/utils/internal/logger.ts)
