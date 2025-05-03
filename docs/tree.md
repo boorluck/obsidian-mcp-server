@@ -1,6 +1,6 @@
 # obsidian-mcp-server - Directory Structure
 
-Generated on: 2025-05-03 02:26:41
+Generated on: 2025-05-03 02:34:51
 
 
 ```
@@ -21,10 +21,6 @@ obsidian-mcp-server
     │   └── index.ts
     ├── mcp-server
     │   ├── tools
-    │   │   ├── echoTool
-    │   │   │   ├── echoToolLogic.ts
-    │   │   │   ├── index.ts
-    │   │   │   └── registration.ts
     │   │   ├── obsidianDeleteFileTool
     │   │   │   ├── index.ts
     │   │   │   ├── logic.ts

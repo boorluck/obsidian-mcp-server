@@ -22,12 +22,12 @@ import { ErrorHandler, logger, requestContextService } from '../utils/index.js';
 import { ObsidianRestApiService } from '../services/obsidianRestAPI/index.js';
 // Import registration functions for specific resources and tools.
 // import { registerEchoResource } from './resources/echoResource/index.js'; // Not currently implemented
-import { registerEchoTool } from './tools/echoTool/index.js';
-import { registerObsidianReadFileTool } from './tools/obsidianReadFileTool/index.js';
-import { registerObsidianUpdateFileTool } from './tools/obsidianUpdateFileTool/index.js';
+// import { registerEchoTool } from './tools/echoTool/index.js'; // Removed
 import { registerObsidianDeleteFileTool } from './tools/obsidianDeleteFileTool/index.js';
 import { registerObsidianListFilesTool } from './tools/obsidianListFilesTool/index.js';
+import { registerObsidianReadFileTool } from './tools/obsidianReadFileTool/index.js';
 import { registerObsidianSearchReplaceTool } from './tools/obsidianSearchReplaceTool/index.js'; // Import the new tool
+import { registerObsidianUpdateFileTool } from './tools/obsidianUpdateFileTool/index.js';
 // Import transport setup functions.
 import { startHttpTransport } from './transports/httpTransport.js';
 import { connectStdioTransport } from './transports/stdioTransport.js';
@@ -95,7 +95,7 @@ async function createMcpServerInstance(): Promise<McpServer> {
     // internal registry, making them available via MCP methods like 'tools/list'.
     logger.debug('Registering resources and tools...', context);
     // await registerEchoResource(server); // Not currently implemented
-    await registerEchoTool(server);     // Example tool registration
+    // await registerEchoTool(server); // Removed
 
     // --- Register Obsidian Tools ---
     // Pass the obsidianService instance to each registration function.

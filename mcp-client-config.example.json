@@ -3,7 +3,7 @@
     "obsidian-mcp-server": {
       "command": "node",
       "args": [
-        "/path/to/obsidian-mcp-server/build/index.js"
+        "/path/to/obsidian-mcp-server/dist/index.js"
       ],
       "env": {
         "OBSIDIAN_API_KEY": "your_api_key_here",
