@@ -1,62 +1,71 @@
-# MCP TypeScript Template 🚀
+# Obsidian MCP Server  Obsidian Logo 💎
 
 [![TypeScript](https://img.shields.io/badge/TypeScript-^5.8.3-blue.svg)](https://www.typescriptlang.org/)
-[![Model Context Protocol](https://img.shields.io/badge/MCP_SDK-1.10.2-green.svg)](https://modelcontextprotocol.io/) <!-- Clarified SDK version -->
-[![Version](https://img.shields.io/badge/Version-1.1.1-blue.svg)](./CHANGELOG.md)
+[![Model Context Protocol](https://img.shields.io/badge/MCP_SDK-1.10.2-green.svg)](https://modelcontextprotocol.io/)
+[![Version](https://img.shields.io/badge/Version-1.1.1-blue.svg)](./CHANGELOG.md) <!-- TODO: Update version if needed -->
 [![License](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](https://opensource.org/licenses/Apache-2.0)
-[![Status](https://img.shields.io/badge/Status-Stable-green.svg)](https://github.com/cyanheads/mcp-ts-template/issues)
-[![GitHub](https://img.shields.io/github/stars/cyanheads/mcp-ts-template?style=social)](https://github.com/cyanheads/mcp-ts-template)
+[![Status](https://img.shields.io/badge/Status-Stable-green.svg)](https://github.com/casey/obsidian-mcp-server/issues) <!-- TODO: Update repo link -->
+[![GitHub](https://img.shields.io/github/stars/casey/obsidian-mcp-server?style=social)](https://github.com/casey/obsidian-mcp-server) <!-- TODO: Update repo link -->
 
-**Jumpstart your [Model Context Protocol (MCP) Client & Server](https://modelcontextprotocol.io/) development with this TypeScript Repo Template!**
+**Connect your AI models to your Obsidian vault!**
 
-This template provides a solid, beginner-friendly foundation for building robust MCP servers and clients. It includes production-ready utilities, a well-structured codebase, working examples, and clear documentation to get you up and running quickly.
+This [Model Context Protocol (MCP)](https://modelcontextprotocol.io/) server acts as a bridge between MCP-compatible host applications (like AI assistants) and your Obsidian vault. It leverages the [Obsidian Local REST API plugin](https://github.com/coddingtonbear/obsidian-local-rest-api) to expose core vault operations as MCP tools.
 
-Whether you're creating a new MCP server to extend an AI's capabilities or integrating MCP client features into your application, this template is your starting point.
+Built upon the robust `mcp-ts-template`, this server provides a secure and reliable way to read, write, list, and modify files within your Obsidian vault programmatically.
 
 ## ✨ Key Features
 
-- **🚀 Production-Ready Utilities**: Includes logging, error handling, ID generation, rate limiting, request context tracking, and input sanitization out-of-the-box.
-- **🔒 Type Safety & Security**: Leverages TypeScript and Zod for strong type checking and validation, plus built-in security utilities.
+- **💎 Obsidian Integration**: Interact directly with your Obsidian vault using MCP tools.
+- **🔧 Core Vault Operations**: Provides tools for:
+    - Reading files (`obsidian_read_file`)
+    - Updating files (`obsidian_update_file` - append, prepend, overwrite)
+    - Searching and replacing within files (`obsidian_search_replace`)
+    - Listing files and directories (`obsidian_list_files`)
+    - Deleting files (`obsidian_delete_file`)
+- **🚀 Production-Ready Utilities**: Inherits logging, error handling, ID generation, rate limiting, request context tracking, and input sanitization from the `mcp-ts-template`.
+- **🔒 Type Safety & Security**: Leverages TypeScript and Zod for strong type checking and validation. Includes security utilities and requires authentication for HTTP transport.
 - **⚙️ Robust Error Handling**: Consistent error categorization and detailed logging for easier debugging.
-- **🔌 MCP Server Example**: A functional server with an example [Echo Tool](src/mcp-server/tools/echoTool/index.ts) and [Echo Resource](src/mcp-server/resources/echoResource/index.ts). Supports both `stdio` and `http` (SSE) transports.
-- **💻 MCP Client Example**: A working client ([src/mcp-client/](src/mcp-client/index.ts)) ready to connect to other MCP servers via `mcp-config.json`.
+- **🔌 Flexible Transports**: Supports both `stdio` (for direct integration) and `http` (Streamable SSE) transports.
 - **📚 Clear Documentation**: Comprehensive guides on usage, configuration, and extension.
-- **🤖 Agent Ready**: Comes with a [.clinerules](.clinerules) file – a developer cheatsheet perfect for LLM coding agents, detailing patterns, file locations, and usage snippets. (Remember to update it as you customize!)
-
-_For a deep dive into all features, see the [Detailed Features Table](#detailed-features-table) below._
+- **🤖 Agent Ready**: Comes with a [.clinerules](.clinerules) file – a developer cheatsheet perfect for LLM coding agents, detailing patterns, file locations, and usage snippets.
 
 ## 📋 Table of Contents
 
-[Features](#key-features) | [Quick Start](#quick-start) | [Configuration](#configuration) |
-[Adding Tools/Resources](#adding-your-own-tools--resources) | [Project Structure](#project-structure) |
-[More MCP Resources](#explore-more-mcp-resources) | [License](#license) | [Detailed Features](#detailed-features-table)
+[Features](#key-features) | [Prerequisites](#prerequisites) | [Quick Start](#quick-start) | [Configuration](#configuration) | [Available Tools](#available-tools) | [Architecture](#architecture) | [Adding Tools/Resources](#adding-your-own-tools--resources) | [Project Structure](#project-structure) | [More MCP Resources](#explore-more-mcp-resources) | [License](#license)
 
-## Quick Start
+## ✅ Prerequisites
 
-Get the example server running in minutes:
+1.  **Obsidian**: You need Obsidian installed.
+2.  **Obsidian Local REST API Plugin**: Install and enable the [Obsidian Local REST API plugin](https://github.com/coddingtonbear/obsidian-local-rest-api) within your Obsidian vault.
+3.  **API Key**: Configure an API key within the Local REST API plugin settings in Obsidian. You will need this key to configure the server.
+4.  **Node.js & npm**: Ensure you have Node.js (v18 or later recommended) and npm installed.
+
+## 🚀 Quick Start
+
+Get the server running in minutes:
 
 1.  **Clone the repository:**
-
     ```bash
-    git clone https://github.com/cyanheads/mcp-ts-template.git
-    cd mcp-ts-template
+    # TODO: Update with correct repo URL if needed
+    git clone https://github.com/casey/obsidian-mcp-server.git
+    cd obsidian-mcp-server
     ```
 
 2.  **Install dependencies:**
-
     ```bash
     npm install
     ```
 
-3.  **Build the project:**
+3.  **Configure Environment Variables:**
+    Create a `.env` file in the root directory or set environment variables directly. See the [Configuration](#configuration) section for details. **Minimally, you MUST set `OBSIDIAN_API_KEY` and `OBSIDIAN_BASE_URL`. For HTTP transport, `MCP_AUTH_SECRET_KEY` is also required.**
 
+4.  **Build the project:**
     ```bash
     npm run build
     # Or use 'npm run rebuild' for a clean install (deletes node_modules, logs, dist)
     ```
 
-4.  **Run the Example Server:**
-
+5.  **Run the Server:**
     - **Via Stdio (Default):** Many MCP host applications will run this automatically using `stdio`. To run manually for testing:
       ```bash
       npm start
@@ -67,75 +76,117 @@ Get the example server running in minutes:
       npm run start:http
       # or directly: MCP_TRANSPORT_TYPE=http node dist/index.js
       ```
-      This starts an HTTP server (default: `http://127.0.0.1:3010`) using Server-Sent Events. The port, host, and allowed origins are configurable via environment variables (see [Configuration](#configuration)).
+      This starts an HTTP server (default: `http://127.0.0.1:3010`) using Server-Sent Events. Ensure `MCP_AUTH_SECRET_KEY` is set. The port, host, and allowed origins are configurable via environment variables.
 
-## ⚙️ Configuration
+## ⚙️ Configuration (Environment Variables)
 
-### Server Configuration (Environment Variables)
+Configure the Obsidian MCP server's behavior using these environment variables (e.g., in a `.env` file):
 
-Configure the MCP server's behavior using these environment variables:
-
-| Variable              | Description                                                              | Default             |
-| --------------------- | ------------------------------------------------------------------------ | ------------------- |
-| `MCP_TRANSPORT_TYPE`  | Server transport: `stdio` or `http`.                                     | `stdio`             |
-| `MCP_HTTP_PORT`       | Port for the HTTP server (if `MCP_TRANSPORT_TYPE=http`).                 | `3010`              |
-| `MCP_HTTP_HOST`       | Host address for the HTTP server (if `MCP_TRANSPORT_TYPE=http`).         | `127.0.0.1`         |
-| `MCP_ALLOWED_ORIGINS` | Comma-separated allowed origins for CORS (if `MCP_TRANSPORT_TYPE=http`). | (none)              |
-| `MCP_SERVER_NAME`     | Optional server name (used in MCP initialization).                       | (from package.json) |
-| `MCP_SERVER_VERSION`  | Optional server version (used in MCP initialization).                    | (from package.json) |
-| `MCP_LOG_LEVEL`       | Server logging level (`debug`, `info`, `warning`, `error`, etc.).        | `info`              |
-| `NODE_ENV`            | Runtime environment (`development`, `production`).                       | `development`       |
+| Variable                | Description                                                                                                | Required                     | Default             |
+| ----------------------- | ---------------------------------------------------------------------------------------------------------- | ---------------------------- | ------------------- |
+| **`OBSIDIAN_API_KEY`**  | API Key generated by the Obsidian Local REST API plugin.                                                   | **Yes**                      | `undefined`         |
+| **`OBSIDIAN_BASE_URL`** | Base URL of your Obsidian Local REST API (e.g., `http://127.0.0.1:27123`).                                  | **Yes**                      | `undefined`         |
+| `OBSIDIAN_VERIFY_SSL`   | Set to `false` to disable SSL certificate verification for the Obsidian API (e.g., for self-signed certs). | No                           | `true`              |
+| `MCP_TRANSPORT_TYPE`    | Server transport: `stdio` or `http`.                                                                       | No                           | `stdio`             |
+| `MCP_HTTP_PORT`         | Port for the HTTP server (if `MCP_TRANSPORT_TYPE=http`).                                                   | No (if `stdio`)              | `3010`              |
+| `MCP_HTTP_HOST`         | Host address for the HTTP server (if `MCP_TRANSPORT_TYPE=http`).                                           | No (if `stdio`)              | `127.0.0.1`         |
+| `MCP_ALLOWED_ORIGINS`   | Comma-separated allowed origins for CORS (if `MCP_TRANSPORT_TYPE=http`). **Set for production.**           | No (if `stdio`)              | (none)              |
+| **`MCP_AUTH_SECRET_KEY`** | Secret key (min 32 chars) for signing/verifying auth tokens (JWT). **Required for `http` transport.**      | **Yes (if `http`)**          | `undefined`         |
+| `MCP_LOG_LEVEL`         | Server logging level (`debug`, `info`, `warning`, `error`, etc.).                                          | No                           | `info`              |
+| `MCP_SERVER_NAME`       | Optional server name (used in MCP initialization).                                                         | No                           | (from package.json) |
+| `MCP_SERVER_VERSION`    | Optional server version (used in MCP initialization).                                                      | No                           | (from package.json) |
+| `NODE_ENV`              | Runtime environment (`development`, `production`).                                                         | No                           | `development`       |
 
 **Note on HTTP Port Retries:** If the `MCP_HTTP_PORT` is busy, the server automatically tries the next port (up to 15 times).
 
-### Client Configuration (`mcp-config.json`)
+## 🛠️ Available Tools
 
-Configure the connections for the built-in **MCP client** using `src/mcp-client/mcp-config.json`. If this file is missing, it falls back to `src/mcp-client/mcp-config.json.example`.
+This server exposes the following MCP tools for interacting with your Obsidian vault:
 
-This file defines external MCP servers the client can connect to.
+| Tool Name                   | Description                                                                                                                               | Implementation                                                              |
+| --------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------- |
+| `obsidian_delete_file`      | Permanently deletes a specified file from the vault. Tries exact path, then case-insensitive fallback.                                    | [src/mcp-server/tools/obsidianDeleteFileTool/](src/mcp-server/tools/obsidianDeleteFileTool/) |
+| `obsidian_list_files`       | Lists files and subdirectories within a specified vault folder. Supports filtering by extension or name regex.                            | [src/mcp-server/tools/obsidianListFilesTool/](src/mcp-server/tools/obsidianListFilesTool/) |
+| `obsidian_read_file`        | Retrieves the content and metadata of a specified file. Supports markdown or JSON format. Tries exact path, then case-insensitive fallback. | [src/mcp-server/tools/obsidianReadFileTool/](src/mcp-server/tools/obsidianReadFileTool/) |
+| `obsidian_search_replace`   | Performs search-and-replace operations within a target note (file path, active, or periodic). Supports regex, case sensitivity, etc.      | [src/mcp-server/tools/obsidianSearchReplaceTool/](src/mcp-server/tools/obsidianSearchReplaceTool/) |
+| `obsidian_update_file`      | Modifies notes using whole-file operations: 'append', 'prepend', or 'overwrite'. Can create missing files/targets.                          | [src/mcp-server/tools/obsidianUpdateFileTool/](src/mcp-server/tools/obsidianUpdateFileTool/) |
 
-**Example `mcp-config.json`:**
+Refer to the tool implementation directories and the [.clinerules](.clinerules) cheatsheet for detailed input schemas and usage patterns.
 
-```json
-{
-  "mcpServers": {
-    "my-stdio-server": {
-      "command": "node", // Command or executable
-      "args": ["/path/to/my-server/index.js"], // Arguments for stdio
-      "env": { "LOG_LEVEL": "debug" }, // Optional environment variables
-      "transportType": "stdio" // Explicitly stdio
-    },
-    "my-http-server": {
-      "command": "http://localhost:8080", // Base URL for HTTP
-      "args": [], // Not used for HTTP
-      "transportType": "http" // Explicitly http
-    }
-  }
-}
+## 🏗️ Architecture
+
+This server acts as an intermediary, translating MCP requests into Obsidian Local REST API calls.
+
+```mermaid
+graph LR
+    subgraph "Host Application (e.g., VS Code)"
+        H[Host] --> C[Client]
+    end
+    subgraph "Obsidian MCP Server Process"
+        S[Obsidian MCP Server]
+        OAS[ObsidianRestApiService]
+        S --> OAS
+    end
+    subgraph "Obsidian Application"
+        OLR[Local REST API Plugin]
+        OV[Obsidian Vault]
+        OLR <--> OV
+    end
+    C <-->|MCP Protocol (Stdio/HTTP)| S
+    OAS <-->|HTTP API Calls| OLR
 ```
 
-- **`command`**: Executable path (`stdio`) or Base URL (`http`).
-- **`args`**: Array of arguments (required for `stdio`).
-- **`env`**: Optional environment variables to set for the server process (`stdio`).
-- **`transportType`**: `stdio` (default) or `http`.
+1.  **Host Application**: Connects to the Obsidian MCP Server via an MCP Client.
+2.  **MCP Client**: Sends MCP requests (e.g., `tools/call` for `obsidian_read_file`) over the chosen transport (`stdio` or `http`).
+3.  **Obsidian MCP Server**:
+    - Receives the MCP request.
+    - Validates the request and arguments using Zod schemas.
+    - Uses the `ObsidianRestApiService` to interact with the Obsidian Local REST API.
+4.  **ObsidianRestApiService**:
+    - Constructs the appropriate HTTP request for the Obsidian Local REST API (e.g., `GET /vault/MyNote.md`).
+    - Adds the `Authorization` header with the `OBSIDIAN_API_KEY`.
+    - Sends the request to the `OBSIDIAN_BASE_URL`.
+5.  **Obsidian Local REST API Plugin**:
+    - Receives the HTTP request.
+    - Performs the requested action within the Obsidian Vault (e.g., reads `MyNote.md`).
+    - Sends the HTTP response back to the `ObsidianRestApiService`.
+6.  **Obsidian MCP Server**:
+    - Receives the response from the service.
+    - Formats the result into an MCP response message (e.g., `CallToolResult`).
+    - Sends the MCP response back to the Client.
+7.  **Host Application**: Receives the result and presents it to the user or AI model.
 
-See `src/mcp-client/configLoader.ts` for the Zod validation schema.
+## 🧩 Adding Your Own Tools & Resources
+
+This template is designed for extension! While focused on Obsidian, you can add other tools or resources.
+
+1.  **Create Directories**: Add new directories under `src/mcp-server/tools/yourToolName/` or `src/mcp-server/resources/yourResourceName/`.
+2.  **Implement Logic (`logic.ts`)**: Define Zod schemas for inputs/outputs and write your core processing function. If interacting with Obsidian, use the `ObsidianRestApiService` instance passed during registration.
+3.  **Register (`registration.ts`)**:
+    - **Tools**: Use `server.tool(name, description, zodSchemaShape, handler)` (SDK v1.10.2+). This handles schema generation, validation, and routing. Pass the `obsidianService` instance to your handler if needed.
+    - **Resources**: Use `server.resource(regName, template, metadata, handler)`.
+    - Wrap logic in `ErrorHandler.tryCatch` for robust error handling.
+4.  **Export & Import**: Export the registration function from your new directory's `index.ts` and call it within `createMcpServerInstance` in `src/mcp-server/server.ts`, passing the `obsidianService` instance.
+
+Refer to the included Obsidian tool examples and the [.clinerules](.clinerules) cheatsheet for detailed patterns.
 
 ## 🏗️ Project Structure
 
 The `src/` directory is organized for clarity:
 
-- `config/`: Loads environment variables and package info.
-- `mcp-client/`: Logic for the client connecting to _external_ MCP servers.
-  - `client.ts`: Core connection management.
-  - `configLoader.ts`: Loads and validates `mcp-config.json`.
-  - `transport.ts`: Creates `stdio` or `http` client transports.
-  - `mcp-config.json.example`: Example client config. Copy to `mcp-config.json`.
-- `mcp-server/`: Logic for the MCP server _provided by this template_.
-  - `server.ts`: Initializes the server, registers tools/resources.
-  - `resources/`: Example resource implementations (e.g., EchoResource).
-  - `tools/`: Example tool implementations (e.g., EchoTool).
-  - `transports/`: Handles `stdio` and `http` communication.
+- `config/`: Loads environment variables (`.env`), package info, and Obsidian API settings.
+- `mcp-server/`: Logic for the MCP server provided by this template.
+  - `server.ts`: Initializes the server, instantiates `ObsidianRestApiService`, registers tools/resources.
+  - `tools/`: Implementations for each Obsidian MCP tool (e.g., `obsidianReadFileTool/`).
+    - `index.ts`: Exports the registration function.
+    - `logic.ts`: Defines Zod schema and the core tool logic.
+    - `registration.ts`: Registers the tool with the MCP server using `server.tool()`.
+  - `transports/`: Handles `stdio` and `http` communication layers, including HTTP authentication middleware.
+- `services/`: Contains service abstractions for external APIs.
+  - `obsidianRestAPI/`: Typed client for the Obsidian Local REST API.
+    - `service.ts`: Main service class using Axios.
+    - `methods/`: Functions implementing specific API calls.
+    - `types.ts`: TypeScript interfaces for API requests/responses.
 - `types-global/`: Shared TypeScript definitions (Errors, MCP types).
 - `utils/`: Reusable utilities (logging, errors, security, parsing, etc.). Exported via `index.ts`.
 
@@ -145,21 +196,7 @@ The `src/` directory is organized for clarity:
 npm run tree
 ```
 
-(This uses `scripts/tree.ts` to generate a current file tree.)
-
-## 🧩 Adding Your Own Tools & Resources
-
-This template is designed for extension!
-
-1.  **Create Directories**: Add new directories under `src/mcp-server/tools/yourToolName/` or `src/mcp-server/resources/yourResourceName/`.
-2.  **Implement Logic (`logic.ts`)**: Define Zod schemas for inputs/outputs and write your core processing function.
-3.  **Register (`registration.ts`)**:
-    - **Tools**: Use `server.tool(name, description, zodSchemaShape, handler)` (SDK v1.10.2+). This handles schema generation, validation, and routing.
-    - **Resources**: Use `server.resource(regName, template, metadata, handler)`.
-    - Wrap logic in `ErrorHandler.tryCatch` for robust error handling.
-4.  **Export & Import**: Export the registration function from your new directory's `index.ts` and call it within `createMcpServerInstance` in `src/mcp-server/server.ts`.
-
-Refer to the included `EchoTool` and `EchoResource` examples and the [.clinerules](.clinerules) cheatsheet for detailed patterns.
+(This uses `scripts/tree.ts` to generate a current file tree in `docs/tree.md`.)
 
 ## 🌍 Explore More MCP Resources
 
@@ -167,7 +204,7 @@ Looking for more examples, guides, and pre-built MCP servers? Check out the comp
 
 ➡️ **[cyanheads/model-context-protocol-resources](https://github.com/cyanheads/model-context-protocol-resources)**
 
-This collection includes servers for Filesystem, Obsidian, Git, GitHub, Perplexity, Atlas, Ntfy, and more, along with in-depth guides based on my real-world MCP development.
+This collection includes servers for Filesystem, Git, GitHub, Perplexity, Atlas, Ntfy, and more, along with in-depth guides based on real-world MCP development.
 
 ## 📜 License
 
@@ -176,34 +213,5 @@ This project is licensed under the Apache License 2.0. See the [LICENSE](LICENSE
 ---
 
 <div align="center">
-Built with ❤️ and the <a href="https://modelcontextprotocol.io/">Model Context Protocol</a>
+Built with ❤️, TypeScript, and the <a href="https://modelcontextprotocol.io/">Model Context Protocol</a>
 </div>
-
-## Detailed Features Table
-
-| Category                 | Feature                         | Description                                                                                                  | Location(s)                                      |
-| ------------------------ | ------------------------------- | ------------------------------------------------------------------------------------------------------------ | ------------------------------------------------ |
-| **Core Components**      | MCP Server                      | Core server logic, tool/resource registration, transport handling. Includes Echo Tool & Resource examples.   | `src/mcp-server/`                                |
-|                          | MCP Client                      | Logic for connecting to external MCP servers defined in `mcp-config.json`.                                   | `src/mcp-client/`                                |
-|                          | Configuration                   | Environment-aware settings with Zod validation.                                                              | `src/config/`, `src/mcp-client/configLoader.ts`  |
-|                          | HTTP Transport                  | Express-based server with SSE, session management, CORS, port retries.                                       | `src/mcp-server/transports/httpTransport.ts`     |
-|                          | Stdio Transport                 | Handles MCP communication over standard input/output.                                                        | `src/mcp-server/transports/stdioTransport.ts`    |
-| **Utilities (Core)**     | Logger                          | Structured, context-aware logging (files & MCP notifications).                                               | `src/utils/internal/logger.ts`                   |
-|                          | ErrorHandler                    | Centralized error processing, classification, and logging.                                                   | `src/utils/internal/errorHandler.ts`             |
-|                          | RequestContext                  | Request/operation tracking and correlation.                                                                  | `src/utils/internal/requestContext.ts`           |
-| **Utilities (Metrics)**  | TokenCounter                    | Estimates token counts using `tiktoken`.                                                                     | `src/utils/metrics/tokenCounter.ts`              |
-| **Utilities (Parsing)**  | DateParser                      | Parses natural language date strings using `chrono-node`.                                                    | `src/utils/parsing/dateParser.ts`                |
-|                          | JsonParser                      | Parses potentially partial JSON, handles `<think>` blocks.                                                   | `src/utils/parsing/jsonParser.ts`                |
-| **Utilities (Security)** | IdGenerator                     | Generates unique IDs (prefixed or UUIDs).                                                                    | `src/utils/security/idGenerator.ts`              |
-|                          | RateLimiter                     | Request throttling based on keys.                                                                            | `src/utils/security/rateLimiter.ts`              |
-|                          | Sanitization                    | Input validation/cleaning (HTML, paths, URLs, numbers, JSON) & log redaction (`validator`, `sanitize-html`). | `src/utils/security/sanitization.ts`             |
-| **Type Safety**          | Global Types                    | Shared TypeScript definitions for consistent interfaces (Errors, MCP, Tools).                                | `src/types-global/`                              |
-|                          | Zod Schemas                     | Used for robust validation of configuration files and tool/resource inputs.                                  | Throughout (`config`, `mcp-client`, tools, etc.) |
-| **Error Handling**       | Pattern-Based Classification    | Automatically categorize errors based on message patterns.                                                   | `src/utils/internal/errorHandler.ts`             |
-|                          | Consistent Formatting           | Standardized error responses with additional context.                                                        | `src/utils/internal/errorHandler.ts`             |
-|                          | Safe Try/Catch Patterns         | Centralized error processing helpers (`ErrorHandler.tryCatch`).                                              | `src/utils/internal/errorHandler.ts`             |
-|                          | Client/Transport Error Handling | Specific handlers for MCP client and transport errors.                                                       | `src/mcp-client/client.ts`, `transport.ts`       |
-| **Security**             | Input Validation                | Using `validator` and `zod` for various data type checks.                                                    | `src/utils/security/sanitization.ts`, etc.       |
-|                          | Input Sanitization              | Using `sanitize-html` to prevent injection attacks.                                                          | `src/utils/security/sanitization.ts`             |
-|                          | Sensitive Data Redaction        | Automatic redaction in logs.                                                                                 | `src/utils/security/sanitization.ts`             |
-|                          | Configuration Fallback          | Safely falls back to `mcp-config.json.example` if primary client config is missing.                          | `src/mcp-client/configLoader.ts`                 |
