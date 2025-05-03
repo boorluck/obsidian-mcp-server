@@ -1,6 +1,6 @@
 # obsidian-mcp-server - Directory Structure
 
-Generated on: 2025-05-03 02:34:51
+Generated on: 2025-05-03 04:38:23
 
 
 ```
@@ -72,6 +72,9 @@ obsidian-mcp-server
     │   ├── metrics
     │   │   ├── index.ts
     │   │   └── tokenCounter.ts
+    │   ├── obsidian
+    │   │   ├── index.ts
+    │   │   └── obsidianStatUtils.ts
     │   ├── parsing
     │   │   ├── dateParser.ts
     │   │   ├── index.ts
@@ -84,6 +87,7 @@ obsidian-mcp-server
     │   └── index.ts
     ├── .DS_Store
     └── index.ts
+├── .clinerules
 ├── Dockerfile
 ├── env.json
 ├── LICENSE

@@ -95,15 +95,14 @@ async function createMcpServerInstance(): Promise<McpServer> {
     // internal registry, making them available via MCP methods like 'tools/list'.
     logger.debug('Registering resources and tools...', context);
     // await registerEchoResource(server); // Not currently implemented
-    // await registerEchoTool(server); // Removed
 
-    // --- Register Obsidian Tools ---
+    // --- Register Obsidian Tools (Keep Alphabetized) ---
     // Pass the obsidianService instance to each registration function.
-    await registerObsidianReadFileTool(server, obsidianService);
-    await registerObsidianUpdateFileTool(server, obsidianService);
     await registerObsidianDeleteFileTool(server, obsidianService);
     await registerObsidianListFilesTool(server, obsidianService);
-    await registerObsidianSearchReplaceTool(server, obsidianService); // Register the new tool
+    await registerObsidianReadFileTool(server, obsidianService);
+    await registerObsidianSearchReplaceTool(server, obsidianService);
+    await registerObsidianUpdateFileTool(server, obsidianService);
     // TODO: Add registration calls for any other Obsidian tools here
 
     logger.info('Resources and tools registered successfully', context);

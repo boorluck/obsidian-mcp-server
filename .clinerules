@@ -1,0 +1,504 @@
+# Obsidian MCP Server Developer Cheatsheet
+
+This cheatsheet provides quick references for common patterns, utilities, server configuration, and the Obsidian REST API service within the `obsidian-mcp-server` codebase, based on the `mcp-ts-template` and updated for MCP Spec 2025-03-26.
+
+## Server Transports & Configuration
+
+The server can run using different communication transports, configured via environment variables.
+
+- **`MCP_TRANSPORT_TYPE`**: Specifies the transport.
+    - `"stdio"` (Default): Uses standard input/output for communication. Suitable for direct integration with parent processes.
+    - `"http"`: Uses Streamable HTTP Server-Sent Events (SSE) for communication. Runs an Express server.
+- **`MCP_HTTP_PORT`**: Port for the HTTP server (Default: `3010`). Used only if `MCP_TRANSPORT_TYPE=http`.
+- **`MCP_HTTP_HOST`**: Host address for the HTTP server (Default: `127.0.0.1`). Used only if `MCP_TRANSPORT_TYPE=http`.
+- **`MCP_ALLOWED_ORIGINS`**: Comma-separated list of allowed origins for HTTP requests (e.g., `http://localhost:8080,https://my-frontend.com`). Used only if `MCP_TRANSPORT_TYPE=http`.
+- **`MCP_LOG_LEVEL`**: Minimum logging level for the server (e.g., "debug", "info", "warning", "error", "notice", "crit", "alert", "emerg"). Defaults to "info". Affects both file logging and MCP notifications.
+- **`MCP_AUTH_SECRET_KEY`**: **Required for HTTP transport.** Secret key (min 32 chars) for signing/verifying auth tokens (JWT). Defaults to `undefined`. **MUST be set in production.**
+- **`OBSIDIAN_API_KEY`**: **Required.** API key for the Obsidian Local REST API plugin.
+- **`OBSIDIAN_BASE_URL`**: **Required.** Base URL for the Obsidian Local REST API (e.g., `http://127.0.0.1:27123`).
+- **`OBSIDIAN_VERIFY_SSL`**: Set to `false` to disable SSL certificate verification for the Obsidian API (e.g., for self-signed certs). Defaults to `true`.
+
+### HTTP Transport Details (`MCP_TRANSPORT_TYPE=http`)
+
+- **Endpoint**: A single endpoint `/mcp` handles all communication.
+    - `POST /mcp`: Client sends requests/notifications to the server. Requires `mcp-session-id` header for subsequent requests after initialization. Server responds with JSON or initiates SSE stream.
+    - `GET /mcp`: Client initiates SSE stream for server-sent messages. Requires `mcp-session-id` header.
+    - `DELETE /mcp`: Client signals session termination. Requires `mcp-session-id` header.
+- **Session Management**: Each client connection establishes a session identified by the `mcp-session-id` header. The server maintains state per session.
+- **Security**: Robust origin checking is implemented via `originCheckMiddleware`. Configure `MCP_ALLOWED_ORIGINS` for production environments.
+
+### Running the Server
+
+- **Stdio**: `npm run start:stdio`
+- **HTTP**: `npm run start:http` (Ensure `OBSIDIAN_API_KEY`, `OBSIDIAN_BASE_URL`, and `MCP_AUTH_SECRET_KEY` are set. Optionally set `MCP_HTTP_PORT`, `MCP_HTTP_HOST`, `MCP_ALLOWED_ORIGINS`, `MCP_LOG_LEVEL`, `OBSIDIAN_VERIFY_SSL`).
+
+## Model Context Protocol (MCP) Overview (Spec: 2025-03-26)
+
+MCP provides a standardized way for LLMs (via host applications) to interact with external capabilities (tools, data) exposed by dedicated servers.
+
+### Core Concepts & Architecture
+
+- **Host:** Manages clients, LLM integration, security, and user consent (e.g., Claude Desktop, VS Code).
+- **Client:** Resides in the host, connects 1:1 to a server, handles protocol.
+- **Server:** Standalone process exposing capabilities (Resources, Tools, Prompts). Focuses on its domain, isolated from LLM/other servers.
+
+```mermaid
+graph LR
+    subgraph "Host Application Process"
+        H[Host]
+        C1[Client 1]
+        C2[Client 2]
+        H --> C1
+        H --> C2
+    end
+    subgraph "Server Process 1"
+        S1["MCP Server A<br>(e.g., Filesystem)"]
+        R1["Local Resource<br>e.g., Files"]
+        S1 <--> R1
+    end
+    subgraph "Server Process 2"
+        S2["MCP Server B<br>(e.g., API Wrapper)"]
+        R2["Remote Resource<br>e.g., Web API"]
+        S2 <--> R2
+    end
+    C1 <-->|MCP Protocol| S1
+    C2 <-->|MCP Protocol| S2
+```
+
+- **Key Principles:** Simplicity, Composability, Isolation, Progressive Features.
+
+### Protocol Basics
+
+- **Communication:** JSON-RPC 2.0 over a transport (Stdio, Streamable HTTP).
+- **Messages:** Requests (with `id`), Responses (`id` + `result`/`error`), Notifications (no `id`). Batches MUST be supported for receiving.
+- **Lifecycle:**
+    1.  **Initialization:** Client sends `initialize` (version, capabilities, clientInfo). Server responds (`initialize` response: agreed version, capabilities, serverInfo, instructions?). Client sends `initialized` notification.
+    2.  **Operation:** Message exchange based on negotiated capabilities.
+    3.  **Shutdown:** Transport disconnect.
+
+### Server Capabilities
+
+Servers expose functionality via:
+
+1.  **Resources:**
+    - **Purpose:** Expose data/content (files, DB records) as context.
+    - **Control:** Application-controlled.
+    - **ID:** Unique URI (e.g., `file:///path/to/doc.txt`).
+    - **Discovery:** `resources/list` (paginated), `resources/templates/list` (paginated).
+    - **Reading:** `resources/read` -> `ResourceContent` array (`text` or `blob`).
+    - **Updates (Optional):** `listChanged: true` -> `notifications/resources/list_changed`. `subscribe: true` -> `resources/subscribe`, `notifications/resources/updated`, **MUST handle `resources/unsubscribe` request**.
+
+2.  **Tools:**
+    - **Purpose:** Expose executable functions for LLM invocation (via client).
+    - **Control:** Model-controlled.
+    - **Definition:** `Tool` object (`name`, `description`, `inputSchema` (JSON Schema), `annotations?`). Annotations (`title`, `readOnlyHint`, etc.) are untrusted hints.
+    - **Discovery:** `tools/list` (paginated).
+    - **Invocation:** `tools/call` (`name`, `arguments`) -> `CallToolResult` (`content` array, `isError: boolean`). Execution errors reported via `isError: true`. **Rich schemas are crucial.**
+    - **Updates (Optional):** `listChanged: true` -> `notifications/tools/list_changed` (MUST send after dynamic changes).
+
+3.  **Prompts:**
+    - **Purpose:** Reusable prompt templates/workflows (e.g., slash commands).
+    - **Control:** User-controlled.
+    - **Definition:** `Prompt` object (`name`, `description?`, `arguments?`).
+    - **Discovery:** `prompts/list` (paginated).
+    - **Usage:** `prompts/get` (`name`, `arguments`) -> `GetPromptResult` (`messages` array).
+    - **Updates (Optional):** `listChanged: true` -> `notifications/prompts/list_changed`.
+
+### Interacting with Client Capabilities
+
+- **Roots:** Client may provide filesystem roots (`file://`). Server receives list on init, updates via `notifications/roots/list_changed` (if supported). Servers SHOULD respect roots.
+- **Sampling:** Server can request LLM completion via client using `sampling/createMessage`. Client SHOULD implement human-in-the-loop.
+
+### Server Utilities
+
+- **Logging:** `logging` capability -> `notifications/message` (RFC 5424 levels: `debug`, `info`, `notice`, `warning`, `error`, `critical`, `alert`, `emergency`). Client can send `logging/setLevel`.
+- **Pagination:** List operations use `cursor`/`nextCursor`.
+- **Completion:** `completions` capability -> `completion/complete`.
+- **Cancellation:** `notifications/cancelled` (best-effort).
+- **Ping:** `ping` request -> `{}` response.
+- **Progress:** `notifications/progress` (requires `_meta.progressToken` in original request).
+- **Configuration:** `configuration/get`, `configuration/set`.
+- **Back-pressure:** Clients debounce rapid notifications. Servers should aim for idempotency.
+
+### SDK Usage (TypeScript) - IMPORTANT
+
+- **High-Level SDK Abstractions (Strongly Recommended):**
+    - **Use `server.tool(name, description, zodSchemaShape, handler)`:** This is the **preferred and strongly recommended** way to define tools. It automatically handles:
+        - Registering the tool for `tools/list`.
+        - Generating the JSON Schema from the Zod shape.
+        - Validating incoming `tools/call` arguments against the schema.
+        - Routing the call to your handler with validated arguments.
+        - Formatting the `CallToolResult`.
+    - **Use `server.resource(regName, template, metadata, handler)`:** Similarly recommended for resources.
+    - **Benefits:** Significantly reduces boilerplate, enforces type safety, simplifies protocol adherence.
+- **Low-Level SDK Handlers (AVOID unless absolutely necessary):**
+    - Manually using `server.setRequestHandler(SchemaObject, handler)` requires you to handle schema generation, argument validation, request routing, and response formatting yourself.
+    - **CRITICAL WARNING:** **Do NOT mix high-level (`server.tool`, `server.resource`) and low-level (`server.setRequestHandler`) approaches for the *same capability type* (e.g., tools).** The SDK's internal state management and type handling can become confused, leading to unexpected errors or incorrect behavior. Stick to one approach per capability type, **strongly preferring the high-level abstractions.**
+
+### Security Considerations
+
+- **Input Validation:** Use schemas (Zod), sanitize inputs (paths, HTML, SQL).
+- **Access Control:** Least privilege, respect roots.
+- **Transport Security:**
+    - **HTTP:** Mandatory JWT authentication (`src/mcp-server/transports/authentication/authMiddleware.ts`). **Requires `MCP_AUTH_SECRET_KEY` to be set.** Validate `Origin` header (via `isOriginAllowed` in `httpTransport.ts`). Use HTTPS in production. Bind to `127.0.0.1` for local servers.
+    - **Stdio:** Authentication typically handled by the host process. Best practice is to not apply authentication to MCP Server stdio processes.
+- **Secrets Management:** Use env vars (`MCP_AUTH_SECRET_KEY`, `OBSIDIAN_API_KEY`) or secrets managers, avoid hardcoding/logging.
+- **Dependency Security:** Keep dependencies updated (`npm audit`).
+- **Rate Limiting:** Protect against abuse.
+
+## Obsidian REST API Service (`src/services/obsidianRestAPI/`)
+
+This service provides a typed interface for interacting with the Obsidian Local REST API plugin.
+
+### Purpose
+
+- Encapsulates all communication logic with the Obsidian REST API.
+- Provides methods for common Obsidian operations like reading/writing files, searching, executing commands, etc.
+- Handles authentication (API key) and configuration (base URL, SSL verification) based on environment variables (`OBSIDIAN_API_KEY`, `OBSIDIAN_BASE_URL`, `OBSIDIAN_VERIFY_SSL`).
+
+### Architecture
+
+- **`service.ts` (`ObsidianRestApiService` class):**
+    - The main service class.
+    - Initializes an Axios instance for making HTTP requests.
+    - Contains the private `_request` method which handles:
+        - Adding the `Authorization` header.
+        - Making the actual HTTP call.
+        - Centralized error handling (translating HTTP errors to `McpError`).
+        - Logging requests and responses.
+    - Exposes public methods for each API category (e.g., `getFileContent`, `executeCommand`).
+- **`methods/*.ts`:**
+    - Each file corresponds to a category of API endpoints (e.g., `vaultMethods.ts`, `commandMethods.ts`).
+    - Contains functions that implement the logic for specific endpoints (e.g., constructing the URL, setting request body/headers).
+    - These functions accept the `_request` function from the service instance as an argument to perform the actual HTTP call. This promotes modularity and keeps the main service class clean.
+- **`types.ts`:**
+    - Defines TypeScript interfaces for API request parameters and response structures (e.g., `NoteJson`, `PatchOptions`, `ApiStatusResponse`). Based on the Obsidian Local REST API OpenAPI spec.
+- **`index.ts`:**
+    - Barrel file exporting the `ObsidianRestApiService` class, all types, and the method modules.
+
+### Usage
+
+- The `ObsidianRestApiService` is typically instantiated within the MCP server logic (e.g., inside tool handlers) where interaction with Obsidian is needed.
+- Tool implementations (like `obsidianReadFileTool`, `obsidianUpdateFileTool`) use this service to perform actions within the user's vault.
+
+```typescript
+// Example within an MCP Tool handler
+import { ObsidianRestApiService } from '../../services/obsidianRestAPI/index.js';
+import { config } from '../../config/index.js';
+import { RequestContext } from '../../utils/index.js';
+
+// Assuming obsidianService is instantiated appropriately
+// (In a real scenario, dependency injection or a singleton pattern might be used)
+const obsidianService = new ObsidianRestApiService(); // Needs config loaded
+
+async function handleReadFile(filePath: string, context: RequestContext) {
+  try {
+    const content = await obsidianService.getFileContent(filePath, 'markdown', context);
+    // ... process content ...
+    return { content: [{ text: `Read content: ${content}` }], isError: false };
+  } catch (error) {
+    // Error handling (McpError already thrown by service)
+    throw error; // Re-throw for the MCP server to handle
+  }
+}
+```
+
+- **Key Takeaway**: Use the methods provided by `ObsidianRestApiService` for all interactions with the Obsidian vault via the REST API. Do not make direct HTTP calls to the Obsidian API elsewhere.
+
+## Core Utilities Integration
+
+### 1. Logging (`src/utils/internal/logger.ts`)
+
+- **Purpose**: Structured logging compliant with MCP Spec (RFC 5424 levels). Logs to files (`logs/`) and can send `notifications/message` to connected clients supporting the `logging` capability.
+- **Levels**: `debug`(7), `info`(6), `notice`(5), `warning`(4), `error`(3), `crit`(2), `alert`(1), `emerg`(0).
+- **Usage**: Import the singleton `logger` instance from the main utils barrel file (`src/utils/index.js`). Pass a `context` object (`RequestContext`) for correlation.
+
+```typescript
+// Example assuming import from a file within src/
+import { logger, McpLogLevel, RequestContext } from './utils/index.js'; // Import logger, level type, and context type
+
+// Inside a function or handler
+const operationContext: RequestContext = /* ... get or create context ... */;
+
+logger.info("Processing request", operationContext); // Level 6
+logger.debug("Detailed step info", { ...operationContext, data: someData }); // Level 7
+logger.notice("Operation completed successfully.", operationContext); // Level 5
+logger.warning("Potential issue detected", operationContext); // Level 4 (Use warning, not warn)
+logger.error("An error occurred", new Error("Something failed"), operationContext); // Level 3 (Pass error object first)
+logger.crit("Critical system failure component", new Error("Details"), operationContext); // Level 2
+
+// Set log level dynamically (e.g., based on client request if supported)
+logger.setLevel('debug' as McpLogLevel);
+
+// Set MCP notification sender (called by server logic on connection)
+// logger.setMcpNotificationSender((level, data, loggerName) => { /* server.sendNotification logic */ });
+```
+
+- **Key Files**:
+  - `src/utils/internal/logger.ts`: Logger implementation.
+  - `logs/`: Directory where JSON log files are stored (`combined.log`, `error.log`, etc.).
+
+### 2. Error Handling (`src/types-global/errors.ts`, `src/utils/internal/errorHandler.ts`)
+
+- **Purpose**: Standardized error objects (`McpError`) and centralized handling (`ErrorHandler`). Automatically determines error codes based on type/patterns.
+- **Usage**:
+  - Use `ErrorHandler.tryCatch` to wrap operations that might fail.
+  - Throw `McpError` for specific, categorized errors using `BaseErrorCode`.
+  - `ErrorHandler` automatically logs errors (using the logger) with context and sanitized input.
+
+```typescript
+// Example assuming import from a file within src/
+import { ErrorHandler, RequestContext } from './utils/index.js'; // Import ErrorHandler and context type
+import { McpError, BaseErrorCode } from './types-global/errors.js'; // Import error types
+
+async function performTask(input: any, context: RequestContext) {
+  return await ErrorHandler.tryCatch(
+    async () => {
+      if (!input) {
+        throw new McpError(BaseErrorCode.VALIDATION_ERROR, "Input cannot be empty", context);
+      }
+      // ... perform task logic ...
+      const result = await someAsyncOperation(input);
+      return result;
+    },
+    {
+      operation: 'performTask',
+      context: context,
+      input: input, // Input is automatically sanitized for logging
+      errorCode: BaseErrorCode.INTERNAL_ERROR, // Default code if unexpected error occurs
+      critical: false // Or true if failure should halt the process
+    }
+  );
+}
+```
+
+- **Key Files**:
+  - `src/types-global/errors.ts`: Defines `McpError` and `BaseErrorCode`.
+  - `src/utils/internal/errorHandler.ts`: Provides `ErrorHandler.tryCatch`, `handleError`, `determineErrorCode`.
+
+### 3. Request Context (`src/utils/internal/requestContext.ts`)
+
+- **Purpose**: Track and correlate operations related to a single request or workflow using a unique `requestId`.
+- **Usage**:
+  - Create context at the beginning of an operation using `requestContextService.createRequestContext`.
+  - Pass the context object down through function calls.
+  - Include the context object when logging or creating errors.
+
+```typescript
+// Example assuming import from a file within src/
+import { requestContextService, RequestContext, logger } from './utils/index.js'; // Import service, type, and logger
+
+function handleIncomingRequest(requestData: any) {
+  const context: RequestContext = requestContextService.createRequestContext({
+    operation: 'HandleIncomingRequest',
+    initialData: requestData.id
+  });
+
+  logger.info("Received request", context);
+  processSubTask(requestData.payload, context);
+}
+
+function processSubTask(payload: any, parentContext: RequestContext) {
+  const subTaskContext = { ...parentContext, subOperation: 'ProcessSubTask' };
+  logger.debug("Processing sub-task", subTaskContext);
+  // ... logic ...
+}
+```
+
+- **Key Files**:
+  - `src/utils/internal/requestContext.ts`: Defines `RequestContext` interface and `requestContextService`.
+
+### 4. ID Generation (`src/utils/security/idGenerator.ts`)
+
+- **Purpose**: Generate unique, prefixed IDs for different entity types and standard UUIDs.
+- **Usage**: Configure prefixes (if needed) and use `idGenerator.generateForEntity` or `generateUUID` from the main utils barrel file.
+
+```typescript
+// Example assuming import from a file within src/
+import { idGenerator, generateUUID } from './utils/index.js'; // Import generator instance and UUID function
+
+// Prefixes are typically not needed unless distinguishing IDs across systems
+// idGenerator.setEntityPrefixes({ project: 'PROJ', task: 'TASK' });
+
+const someId = idGenerator.generateForEntity('request'); // e.g., "REQ_A6B3J0"
+const standardUuid = generateUUID(); // e.g., "123e4567-e89b-12d3-a456-426614174000"
+
+const isValid = idGenerator.isValid(someId, 'request'); // true
+const entityType = idGenerator.getEntityType(someId); // "request"
+```
+
+- **Key Files**:
+  - `src/utils/security/idGenerator.ts`: `IdGenerator` class, `idGenerator` instance, `generateUUID`.
+
+### 5. Sanitization (`src/utils/security/sanitization.ts`)
+
+- **Purpose**: Clean and validate input data (HTML, paths, numbers, URLs, JSON) to prevent security issues. Also sanitizes objects for logging.
+- **Usage**: Import the singleton `sanitization` instance or `sanitizeInputForLogging` from the main utils barrel file.
+
+```typescript
+// Example assuming import from a file within src/
+import { sanitization, sanitizeInputForLogging } from './utils/index.js'; // Import sanitization instance and helper
+
+const unsafeHtml = '<script>alert("xss")</script><p>Safe content</p>';
+const safeHtml = sanitization.sanitizeHtml(unsafeHtml); // "<p>Safe content</p>"
+
+const unsafePath = '../../etc/passwd';
+try {
+  // IMPORTANT: Vault paths are relative, rootDir might not be applicable here.
+  // Use careful validation specific to vault paths if needed.
+  const safePath = sanitization.sanitizePath(unsafePath); // Basic sanitization
+} catch (error) { /* Handle McpError */ }
+
+const userInput = " 123.45 ";
+const num = sanitization.sanitizeNumber(userInput, 0, 1000); // 123.45
+
+const unsafeUrl = 'javascript:alert("bad")';
+try {
+    const safeUrl = sanitization.sanitizeUrl(unsafeUrl);
+} catch (error) { /* Handle McpError */ }
+
+const sensitiveData = { user: 'admin', password: 'pwd', token: 'abc', obsidianApiKey: 'secret' };
+const safeLogData = sanitizeInputForLogging(sensitiveData);
+// safeLogData = { user: 'admin', password: '[REDACTED]', token: '[REDACTED]', obsidianApiKey: '[REDACTED]' }
+```
+
+- **Key Files**:
+  - `src/utils/security/sanitization.ts`: `Sanitization` class, `sanitization` instance, `sanitizeInputForLogging`.
+
+### 6. JSON Parsing (`src/utils/parsing/jsonParser.ts`)
+
+- **Purpose**: Parse potentially partial/incomplete JSON strings. Handles optional `<think>` blocks.
+- **Usage**: Import `jsonParser` from the main utils barrel file. Use `Allow` constants for options.
+
+```typescript
+// Example assuming import from a file within src/
+import { jsonParser, Allow, RequestContext } from './utils/index.js'; // Import parser, Allow enum, and context type
+
+const partialJson = '<think>Parsing...</think>{"key": "value", "incomplete": ';
+const context: RequestContext = /* ... */;
+
+try {
+  const parsed = jsonParser.parse(partialJson, Allow.ALL, context);
+  // parsed = { key: 'value', incomplete: undefined }
+} catch (error) { /* Handle McpError */ }
+```
+
+- **Key Files**:
+  - `src/utils/parsing/jsonParser.ts`: `JsonParser` class, `jsonParser` instance, `Allow` enum.
+
+### 7. Rate Limiting (`src/utils/security/rateLimiter.ts`)
+
+- **Purpose**: Implement rate limiting based on a key (e.g., session ID, user ID).
+- **Usage**: Import `rateLimiter` from the main utils barrel file. Use `check`.
+
+```typescript
+// Example assuming import from a file within src/
+import { rateLimiter, RequestContext } from './utils/index.js'; // Import limiter instance and context type
+
+const sessionId = 'session-abc'; // Or another identifier
+const context: RequestContext = /* ... */;
+
+try {
+  rateLimiter.check(sessionId, context);
+  // ... proceed with operation ...
+} catch (error) { /* Handle McpError (RATE_LIMITED) */ }
+
+// Configure globally if needed (defaults are usually reasonable)
+// rateLimiter.configure({ windowMs: 60 * 1000, maxRequests: 100 });
+```
+
+- **Key Files**:
+  - `src/utils/security/rateLimiter.ts`: `RateLimiter` class, `rateLimiter` instance.
+
+### 8. Token Counting (`src/utils/metrics/tokenCounter.ts`)
+
+- **Purpose**: Estimate tokens using `tiktoken` (`gpt-4o` model). Useful for tracking LLM usage or context window limits.
+- **Usage**: Import `countTokens` or `countChatTokens` from the main utils barrel file.
+
+```typescript
+// Example assuming import from a file within src/
+import { countTokens, countChatTokens, RequestContext } from './utils/index.js'; // Import counting functions and context type
+import { ChatCompletionMessageParam } from 'openai/resources/chat/completions';
+
+const text = "Sample text to count tokens for.";
+const context: RequestContext = /* ... */;
+
+async function calculateTokens() {
+  try {
+    const textTokens = await countTokens(text, context);
+    logger.info(`Text token count: ${textTokens}`, context);
+
+    const messages: ChatCompletionMessageParam[] = [
+        { role: 'system', content: 'You are helpful.' },
+        { role: 'user', content: 'Count these tokens.' }
+    ];
+    const chatTokens = await countChatTokens(messages, context);
+    logger.info(`Chat token count: ${chatTokens}`, context);
+
+  } catch (error) { /* Handle McpError */ }
+}
+```
+
+- **Key Files**:
+  - `src/utils/metrics/tokenCounter.ts`: Provides `countTokens` and `countChatTokens`.
+
+## Utility Scripts (`scripts/`)
+
+This project includes several utility scripts located in the `scripts/` directory to aid development:
+
+### 1. Clean (`scripts/clean.ts`)
+
+- **Purpose**: Removes build artifacts and temporary directories.
+- **Usage**: `npm run rebuild` (uses this script) or `ts-node --esm scripts/clean.ts [dir1] [dir2]...`
+- **Default Targets**: `dist`, `logs`.
+
+### 2. Make Executable (`scripts/make-executable.ts`)
+
+- **Purpose**: Sets executable permissions (`chmod +x`) on specified files (Unix-like systems only). Useful for CLI entry points after building.
+- **Usage**: `npm run build` (uses this script) or `ts-node --esm scripts/make-executable.ts [file1] [file2]...`
+- **Default Target**: `dist/index.js`.
+
+### 3. Generate Tree (`scripts/tree.ts`)
+
+- **Purpose**: Creates a visual directory tree markdown file (`docs/tree.md` by default), respecting `.gitignore`.
+- **Usage**: `npm run tree` or `ts-node --esm scripts/tree.ts [output-path] [--depth=<number>]`
+
+### 4. Fetch OpenAPI Spec (`scripts/fetch-openapi-spec.ts`)
+
+- **Purpose**: Fetches an OpenAPI specification (YAML/JSON) from a URL, attempts fallbacks (`/openapi.yaml`, `/openapi.json`), parses it, and saves both YAML and JSON versions locally. Used here to fetch the Obsidian Local REST API spec.
+- **Usage**: `npm run fetch:spec <url> <output-base-path>` or `ts-node --esm scripts/fetch-openapi-spec.ts <url> <output-base-path>`
+- **Example (for Obsidian API)**: `npm run fetch:spec http://127.0.0.1:27123/ docs/obsidian-api/obsidian_rest_api_spec` (Replace URL if your Obsidian API runs elsewhere)
+- **Dependencies**: `axios`, `js-yaml`.
+
+## Adding New Features
+
+### Adding a Tool
+
+1.  **Directory**: `src/mcp-server/tools/yourToolName/`
+2.  **Logic (`logic.ts`)**: Define input/output types, Zod schema, and core processing function. Use `ObsidianRestApiService` if interaction with Obsidian is needed.
+3.  **Registration (`registration.ts`)**: Import logic, schema, `McpServer`, `ErrorHandler`. **Use the high-level `server.tool(name, description, schemaShape, async handler => { ... })` (SDK v1.10.2+).** Ensure handler returns `CallToolResult` (`{ content: [...], isError: boolean }`). Wrap handler logic and registration in `ErrorHandler.tryCatch`.
+4.  **Index (`index.ts`)**: Export registration function.
+5.  **Server (`src/mcp-server/server.ts`)**: Import and call registration function within `createMcpServerInstance`.
+
+### Adding a Resource
+
+1.  **Directory**: `src/mcp-server/resources/yourResourceName/`
+2.  **Logic (`logic.ts`)**: Define params type, query schema (if needed), and core processing function (takes `uri: URL`, `params`). Use `ObsidianRestApiService` if needed.
+3.  **Registration (`registration.ts`)**: Import logic, schema, `McpServer`, `ResourceTemplate`, `ErrorHandler`. Define `ResourceTemplate`. **Use the high-level `server.resource(regName, template, metadata, async handler => { ... })`.** Handler should return `{ contents: [{ uri, blob, mimeType }] }` where `blob` is Base64 encoded content. Wrap handler logic and registration in `ErrorHandler.tryCatch`. If supporting subscriptions (`subscribe: true` capability), **MUST** also handle `resources/unsubscribe` request.
+4.  **Index (`index.ts`)**: Export registration function.
+5.  **Server (`src/mcp-server/server.ts`)**: Import and call registration function within `createMcpServerInstance`.
+
+## Key File Locations
+
+- **Main Entry**: `src/index.ts` (Initializes server, handles startup/shutdown)
+- **Server Setup**: `src/mcp-server/server.ts` (Handles transport logic (stdio/http), session management (http), registers tools/resources)
+- **HTTP Auth Middleware**: `src/mcp-server/transports/authentication/authMiddleware.ts`
+- **Configuration**: `src/config/index.ts` (Loads env vars, package info, initializes logger, Obsidian API config)
+- **Obsidian Service**: `src/services/obsidianRestAPI/` (Service, methods, types for Obsidian API)
+- **Global Types**: `src/types-global/`
+- **Utilities**: `src/utils/` (Main barrel file `index.ts` exporting from subdirs: `internal`, `metrics`, `parsing`, `security`)
+- **Tools**: `src/mcp-server/tools/` (Contains specific tool implementations like `obsidianReadFileTool`)
+- **Resources**: `src/mcp-server/resources/` (Currently empty, place resource implementations here)
+- **Client Config Example**: `mcp-client-config.example.json` (Example config for connecting clients)
+
+Remember to keep this cheatsheet updated as the codebase evolves!
