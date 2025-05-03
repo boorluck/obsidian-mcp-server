@@ -1,6 +1,6 @@
 # obsidian-mcp-server - Directory Structure
 
-Generated on: 2025-05-02 19:19:25
+Generated on: 2025-05-03 02:26:41
 
 
 ```
@@ -9,6 +9,7 @@ obsidian-mcp-server
     ├── obsidian-api
     │   ├── obsidian_rest_api_spec.json
     │   └── obsidian_rest_api_spec.yaml
+    ├── obsidian_mcp_tools_spec.md
     └── tree.md
 ├── scripts
     ├── clean.ts
@@ -19,15 +20,30 @@ obsidian-mcp-server
     ├── config
     │   └── index.ts
     ├── mcp-server
-    │   ├── resources
-    │   │   └── echoResource
-    │   │   │   ├── echoResourceLogic.ts
-    │   │   │   ├── index.ts
-    │   │   │   └── registration.ts
     │   ├── tools
-    │   │   └── echoTool
+    │   │   ├── echoTool
     │   │   │   ├── echoToolLogic.ts
     │   │   │   ├── index.ts
+    │   │   │   └── registration.ts
+    │   │   ├── obsidianDeleteFileTool
+    │   │   │   ├── index.ts
+    │   │   │   ├── logic.ts
+    │   │   │   └── registration.ts
+    │   │   ├── obsidianListFilesTool
+    │   │   │   ├── index.ts
+    │   │   │   ├── logic.ts
+    │   │   │   └── registration.ts
+    │   │   ├── obsidianReadFileTool
+    │   │   │   ├── index.ts
+    │   │   │   ├── logic.ts
+    │   │   │   └── registration.ts
+    │   │   ├── obsidianSearchReplaceTool
+    │   │   │   ├── index.ts
+    │   │   │   ├── logic.ts
+    │   │   │   └── registration.ts
+    │   │   └── obsidianUpdateFileTool
+    │   │   │   ├── index.ts
+    │   │   │   ├── logic.ts
     │   │   │   └── registration.ts
     │   ├── transports
     │   │   ├── authentication
@@ -72,7 +88,6 @@ obsidian-mcp-server
     │   └── index.ts
     ├── .DS_Store
     └── index.ts
-├── debug.js
 ├── Dockerfile
 ├── env.json
 ├── LICENSE
