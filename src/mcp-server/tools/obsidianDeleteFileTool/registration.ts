@@ -2,8 +2,9 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { BaseErrorCode, McpError } from "../../../types-global/errors.js";
 import { ErrorHandler, logger, requestContextService } from "../../../utils/index.js";
 import { ObsidianRestApiService } from '../../../services/obsidianRestAPI/index.js';
-import type { ObsidianDeleteFileInput } from './logic.js'; // Use type import
-import { ObsidianDeleteFileInputSchema, processObsidianDeleteFile } from './logic.js'; // Schema and logic function
+// Import input type, response type, schema, and logic function
+import type { ObsidianDeleteFileInput, ObsidianDeleteFileResponse } from './logic.js'; // Added Response type
+import { ObsidianDeleteFileInputSchema, processObsidianDeleteFile } from './logic.js';
 
 /**
  * Registers the 'obsidian_delete_file' tool.
@@ -16,7 +17,8 @@ export const registerObsidianDeleteFileTool = async (
   obsidianService: ObsidianRestApiService // Inject Obsidian service
 ): Promise<void> => {
   const toolName = "obsidian_delete_file";
-  const toolDescription = "Permanently deletes a specified file from the Obsidian vault. Tries the exact path first, then attempts a case-insensitive fallback if the file is not found. Requires the vault-relative path including the file extension.";
+  // Updated description for formatted timestamp
+  const toolDescription = "Permanently deletes a specified file from the Obsidian vault. Tries the exact path first, then attempts a case-insensitive fallback if the file is not found. Requires the vault-relative path including the file extension. Returns a success message and a formatted timestamp string.";
 
   const registrationContext = requestContextService.createRequestContext({
     operation: 'RegisterObsidianDeleteFileTool',
@@ -44,14 +46,16 @@ export const registerObsidianDeleteFileTool = async (
           return await ErrorHandler.tryCatch(
             async () => {
               // Call the core logic function, passing the service instance
-              const response = await processObsidianDeleteFile(params, handlerContext, obsidianService);
+              // Response now includes timestamp
+              const response: ObsidianDeleteFileResponse = await processObsidianDeleteFile(params, handlerContext, obsidianService);
               logger.debug("obsidian_delete_file processed successfully", handlerContext);
 
-              // Format the success response into MCP format
+              // Format the success response object into MCP format
               return {
                 content: [{
                   type: "text",
-                  text: JSON.stringify(response, null, 2) // Contains { success: true, message: "..." }
+                  // Stringify the entire response object
+                  text: JSON.stringify(response, null, 2)
                 }],
                 isError: false
               };

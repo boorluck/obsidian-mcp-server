@@ -2,8 +2,9 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { BaseErrorCode, McpError } from "../../../types-global/errors.js";
 import { ErrorHandler, logger, requestContextService } from "../../../utils/index.js";
 import { ObsidianRestApiService } from '../../../services/obsidianRestAPI/index.js';
-import type { ObsidianReadFileInput } from './logic.js'; // Use type import
-import { ObsidianReadFileInputSchema, processObsidianReadFile } from './logic.js'; // Schema and logic function
+// Import input type, response type, schema, and logic function
+import type { ObsidianReadFileInput, ObsidianReadFileResponse } from './logic.js'; // Added Response type
+import { ObsidianReadFileInputSchema, processObsidianReadFile } from './logic.js';
 
 /**
  * Registers the 'obsidian_read_file' tool.
@@ -16,7 +17,8 @@ export const registerObsidianReadFileTool = async (
   obsidianService: ObsidianRestApiService // Inject Obsidian service
 ): Promise<void> => {
   const toolName = "obsidian_read_file";
-  const toolDescription = "Retrieves the content of a specified file within the Obsidian vault. Tries the exact path first, then attempts a case-insensitive fallback if the file is not found. Can return either the raw markdown content or a structured JSON object (NoteJson) including frontmatter, tags, and metadata.";
+  // Updated description for formatted timestamp
+  const toolDescription = "Retrieves the content and metadata of a specified file within the Obsidian vault. Tries the exact path first, then attempts a case-insensitive fallback. Returns an object containing the content (markdown string or full NoteJson object based on 'format'), a formatted timestamp string, and optionally file stats ('stat' object with creationTime, modifiedTime, size). Use 'includeStat: true' with 'format: markdown' to include stats; stats are always included with 'format: json'.";
 
   const registrationContext = requestContextService.createRequestContext({
     operation: 'RegisterObsidianReadFileTool',
@@ -31,27 +33,28 @@ export const registerObsidianReadFileTool = async (
       server.tool(
         toolName,
         toolDescription,
-        ObsidianReadFileInputSchema.shape, // Pass the raw Zod schema shape
+        ObsidianReadFileInputSchema.shape, // Pass the raw Zod schema shape (now includes includeStat)
         async (params: ObsidianReadFileInput) => { // Handler function
           const handlerContext = requestContextService.createRequestContext({
             parentContext: registrationContext,
             operation: 'HandleObsidianReadFileRequest',
             toolName: toolName,
-            params: { filePath: params.filePath, format: params.format } // Log relevant params
+            params: { filePath: params.filePath, format: params.format, includeStat: params.includeStat } // Log relevant params including new one
           });
           logger.debug("Handling obsidian_read_file request", handlerContext);
 
           return await ErrorHandler.tryCatch(
             async () => {
               // Call the core logic function, passing the service instance
-              const response = await processObsidianReadFile(params, handlerContext, obsidianService);
+              // Response is now always ObsidianReadFileResponse object
+              const response: ObsidianReadFileResponse = await processObsidianReadFile(params, handlerContext, obsidianService);
               logger.debug("obsidian_read_file processed successfully", handlerContext);
 
-              // Format the response (string or NoteJson) into MCP format
+              // Format the response object into MCP format
               return {
                 content: [{
                   type: "text",
-                  // Stringify the result, whether it's markdown string or NoteJson object
+                  // Stringify the entire response object
                   text: JSON.stringify(response, null, 2)
                 }],
                 isError: false

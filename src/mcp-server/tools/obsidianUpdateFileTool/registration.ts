@@ -3,7 +3,7 @@ import { BaseErrorCode, McpError } from "../../../types-global/errors.js";
 import { ErrorHandler, logger, requestContextService } from "../../../utils/index.js";
 import { ObsidianRestApiService } from '../../../services/obsidianRestAPI/index.js';
 // Import both the registration input type (for handler signature) and the refined schema (for parsing)
-import type { ObsidianUpdateFileRegistrationInput } from './logic.js';
+import type { ObsidianUpdateFileRegistrationInput, ObsidianUpdateFileResponse } from './logic.js'; // Added ObsidianUpdateFileResponse
 import { ObsidianUpdateFileInputSchema, ObsidianUpdateFileInputSchemaShape, processObsidianUpdateFile } from './logic.js';
 
 /**
@@ -17,7 +17,8 @@ export const registerObsidianUpdateFileTool = async (
   obsidianService: ObsidianRestApiService // Inject Obsidian service
 ): Promise<void> => {
   const toolName = "obsidian_update_file";
-  const toolDescription = "Versatile tool to modify Obsidian notes (specified by file path, the active file, or a periodic note). Supports two main modes: 'wholeFile' (append, prepend, overwrite entire content) and 'patch' (granular append, prepend, or replace relative to internal structures like headings, blocks, or frontmatter keys). Includes case-insensitive fallback for heading targets in patch mode. Options allow creating missing files/targets and controlling overwrite behavior.";
+  // Updated description for formatted timestamp (removed clarification)
+  const toolDescription = "Tool to modify Obsidian notes (specified by file path, the active file, or a periodic note) using whole-file operations: 'append', 'prepend', or 'overwrite'. Options allow creating missing files/targets and controlling overwrite behavior. Returns success status, message, a formatted timestamp string, file stats (stat), and optionally the final file content.";
 
   const registrationContext = requestContextService.createRequestContext({
     operation: 'RegisterObsidianUpdateFileTool',
@@ -32,7 +33,7 @@ export const registerObsidianUpdateFileTool = async (
       server.tool(
         toolName,
         toolDescription,
-        ObsidianUpdateFileInputSchemaShape, // Pass the raw Zod schema shape for registration
+        ObsidianUpdateFileInputSchemaShape, // Pass the raw Zod schema shape (now includes returnContent)
         async (params: ObsidianUpdateFileRegistrationInput) => { // Handler uses the type inferred from the registration shape
           const handlerContext = requestContextService.createRequestContext({
             parentContext: registrationContext,
@@ -40,30 +41,29 @@ export const registerObsidianUpdateFileTool = async (
             toolName: toolName,
             params: { // Log key parameters for context
                 targetType: params.targetType,
-                modificationType: params.modificationType,
+                modificationType: params.modificationType, // Will always be 'wholeFile'
                 targetIdentifier: params.targetIdentifier,
-                // Conditionally log mode/patch details
-                ...(params.modificationType === 'wholeFile' ? { wholeFileMode: params.wholeFileMode } : {}),
-                ...(params.modificationType === 'patch' ? { patchOperation: params.patchOperation, patchTargetType: params.patchTargetType, patchTarget: params.patchTarget } : {}),
+                wholeFileMode: params.wholeFileMode,
+                returnContent: params.returnContent, // Log new param
             }
           });
-          logger.debug("Handling obsidian_update_file request", handlerContext);
+          logger.debug("Handling obsidian_update_file request (wholeFile mode)", handlerContext);
 
           return await ErrorHandler.tryCatch(
             async () => {
-              // Explicitly parse the input using the refined discriminated union schema
-              // This ensures the logic function receives the correctly typed and validated parameters.
+              // Explicitly parse the input using the refined schema
               const validatedParams = ObsidianUpdateFileInputSchema.parse(params);
 
               // Call the core logic function, passing the *validated* params and the service instance
-              const response = await processObsidianUpdateFile(validatedParams, handlerContext, obsidianService);
-              logger.debug("obsidian_update_file processed successfully", handlerContext);
+              const response: ObsidianUpdateFileResponse = await processObsidianUpdateFile(validatedParams, handlerContext, obsidianService);
+              logger.debug("obsidian_update_file (wholeFile mode) processed successfully", handlerContext);
 
-              // Format the success response into MCP format
+              // Format the success response (which now includes timestamp, stat, optional finalContent) into MCP format
               return {
                 content: [{
                   type: "text",
-                  text: JSON.stringify(response, null, 2) // Contains { success: true, message: "..." }
+                  // Serialize the entire response object
+                  text: JSON.stringify(response, null, 2)
                 }],
                 isError: false
               };

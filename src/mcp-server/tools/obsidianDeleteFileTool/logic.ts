@@ -17,11 +17,14 @@ export const ObsidianDeleteFileInputSchema = z.object({
 
 export type ObsidianDeleteFileInput = z.infer<typeof ObsidianDeleteFileInputSchema>;
 
-// Response is just confirmation
+// Updated Response Type
 export interface ObsidianDeleteFileResponse {
   success: boolean;
   message: string;
+  // timestamp: string; // REMOVED
 }
+
+// --- Helper Function to Format Timestamp ---
 
 // --- Core Logic Function ---
 
@@ -32,7 +35,7 @@ export interface ObsidianDeleteFileResponse {
  * @param {ObsidianDeleteFileInput} params - The validated input parameters.
  * @param {RequestContext} context - The request context for logging and tracing.
  * @param {ObsidianRestApiService} obsidianService - The Obsidian REST API service instance.
- * @returns {Promise<ObsidianDeleteFileResponse>} Confirmation message.
+ * @returns {Promise<ObsidianDeleteFileResponse>} Confirmation message with timestamp.
  * @throws {McpError} If the file cannot be deleted or the API request fails.
  */
 export const processObsidianDeleteFile = async (
@@ -40,8 +43,6 @@ export const processObsidianDeleteFile = async (
   context: RequestContext,
   obsidianService: ObsidianRestApiService // Inject the service instance
 ): Promise<ObsidianDeleteFileResponse> => {
-  logger.debug(`Processing obsidian_delete_file request for path: ${params.filePath}`, context);
-
   const originalFilePath = params.filePath;
   logger.debug(`Processing obsidian_delete_file request for path: ${originalFilePath}`, context);
 
@@ -49,8 +50,13 @@ export const processObsidianDeleteFile = async (
     // Initial attempt with the provided path
     logger.debug(`Attempting to delete file (case-sensitive): ${originalFilePath}`, context);
     await obsidianService.deleteFile(originalFilePath, context);
+    // const timestamp = formatTimestamp(new Date()); // REMOVED
     logger.debug(`Successfully deleted file (case-sensitive): ${originalFilePath}`, context);
-    return { success: true, message: `File '${originalFilePath}' deleted successfully.` };
+    return {
+        success: true,
+        message: `File '${originalFilePath}' deleted successfully.`,
+        // timestamp: timestamp // REMOVED
+    };
   } catch (error) {
     // If the initial attempt failed with NOT_FOUND, try case-insensitive fallback
     if (error instanceof McpError && error.code === BaseErrorCode.NOT_FOUND) {
@@ -78,8 +84,13 @@ export const processObsidianDeleteFile = async (
 
           // Retry deleting with the correct path
           await obsidianService.deleteFile(correctFilePath, context);
+          // const timestamp = formatTimestamp(new Date()); // REMOVED
           logger.debug(`Successfully deleted file (case-insensitive fallback): ${correctFilePath}`, context);
-          return { success: true, message: `File '${correctFilePath}' (found via case-insensitive match for '${originalFilePath}') deleted successfully.` };
+          return {
+              success: true,
+              message: `File '${correctFilePath}' (found via case-insensitive match for '${originalFilePath}') deleted successfully.`,
+              // timestamp: timestamp // REMOVED
+          };
 
         } else if (matches.length > 1) {
           // Ambiguous match

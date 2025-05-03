@@ -1,9 +1,9 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
+import { ObsidianRestApiService } from '../../../services/obsidianRestAPI/index.js';
 import { BaseErrorCode, McpError } from "../../../types-global/errors.js";
 import { ErrorHandler, logger, requestContextService } from "../../../utils/index.js";
-import { ObsidianRestApiService } from '../../../services/obsidianRestAPI/index.js';
-// Import registration type, refined schema for parsing, base shape for registration, and logic function
-import type { ObsidianSearchReplaceRegistrationInput } from './logic.js';
+// Import registration type, refined schema for parsing, base shape for registration, logic function, and response type
+import type { ObsidianSearchReplaceRegistrationInput, ObsidianSearchReplaceResponse } from './logic.js'; // Added Response type
 import { ObsidianSearchReplaceInputSchema, ObsidianSearchReplaceInputSchemaShape, processObsidianSearchReplace } from './logic.js';
 
 /**
@@ -17,7 +17,8 @@ export const registerObsidianSearchReplaceTool = async (
   obsidianService: ObsidianRestApiService // Inject Obsidian service
 ): Promise<void> => {
   const toolName = "obsidian_search_replace";
-  const toolDescription = "Performs one or more search-and-replace operations within a target Obsidian note (file path, active, or periodic). Reads the file, applies replacements sequentially in memory, and writes the modified content back, overwriting the original. Supports string/regex search, case sensitivity toggle, and replacing first/all occurrences.";
+  // Updated description for formatted timestamp
+  const toolDescription = "Performs one or more search-and-replace operations within a target Obsidian note (file path, active, or periodic). Reads the file, applies replacements sequentially in memory, and writes the modified content back, overwriting the original. Supports string/regex search, case sensitivity toggle, replacing first/all occurrences, flexible whitespace matching (non-regex), and whole word matching. Returns success status, message, replacement count, a formatted timestamp string, file stats (stat), and optionally the final file content.";
 
   const registrationContext = requestContextService.createRequestContext({
     operation: 'RegisterObsidianSearchReplaceTool',
@@ -27,26 +28,27 @@ export const registerObsidianSearchReplaceTool = async (
 
   logger.info(`Registering tool: ${toolName}`, registrationContext);
 
-
-
   await ErrorHandler.tryCatch(
     async () => {
       server.tool(
         toolName,
         toolDescription,
-        ObsidianSearchReplaceInputSchemaShape, // Use the exported base shape
+        ObsidianSearchReplaceInputSchemaShape, // Use the exported base shape (now includes returnContent)
         async (params: ObsidianSearchReplaceRegistrationInput) => { // Handler uses the type inferred from the base shape
           const handlerContext = requestContextService.createRequestContext({
             parentContext: registrationContext,
             operation: 'HandleObsidianSearchReplaceRequest',
             toolName: toolName,
-            params: { // Log key params
+            params: { // Log key params including new ones
                 targetType: params.targetType,
                 targetIdentifier: params.targetIdentifier,
                 replacementCount: params.replacements.length,
                 useRegex: params.useRegex,
                 replaceAll: params.replaceAll,
                 caseSensitive: params.caseSensitive,
+                flexibleWhitespace: params.flexibleWhitespace,
+                wholeWord: params.wholeWord,
+                returnContent: params.returnContent, // Added returnContent
             }
           });
           logger.debug("Handling obsidian_search_replace request", handlerContext);
@@ -57,13 +59,14 @@ export const registerObsidianSearchReplaceTool = async (
               const validatedParams = ObsidianSearchReplaceInputSchema.parse(params);
 
               // Call the core logic function with validated params
-              const response = await processObsidianSearchReplace(validatedParams, handlerContext, obsidianService);
+              const response: ObsidianSearchReplaceResponse = await processObsidianSearchReplace(validatedParams, handlerContext, obsidianService);
               logger.debug("obsidian_search_replace processed successfully", handlerContext);
 
-              // Format the success response into MCP format
+              // Format the success response (which now includes timestamp, stat, optional finalContent) into MCP format
               return {
                 content: [{
                   type: "text",
+                  // Serialize the entire response object
                   text: JSON.stringify(response, null, 2)
                 }],
                 isError: false
