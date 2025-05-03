@@ -18,9 +18,16 @@ import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { config, environment } from '../config/index.js';
 // Import core utilities: ErrorHandler, logger, requestContextService.
 import { ErrorHandler, logger, requestContextService } from '../utils/index.js';
+// Import the Obsidian service
+import { ObsidianRestApiService } from '../services/obsidianRestAPI/index.js';
 // Import registration functions for specific resources and tools.
-import { registerEchoResource } from './resources/echoResource/index.js';
+// import { registerEchoResource } from './resources/echoResource/index.js'; // Not currently implemented
 import { registerEchoTool } from './tools/echoTool/index.js';
+import { registerObsidianReadFileTool } from './tools/obsidianReadFileTool/index.js';
+import { registerObsidianUpdateFileTool } from './tools/obsidianUpdateFileTool/index.js';
+import { registerObsidianDeleteFileTool } from './tools/obsidianDeleteFileTool/index.js';
+import { registerObsidianListFilesTool } from './tools/obsidianListFilesTool/index.js';
+import { registerObsidianSearchReplaceTool } from './tools/obsidianSearchReplaceTool/index.js'; // Import the new tool
 // Import transport setup functions.
 import { startHttpTransport } from './transports/httpTransport.js';
 import { connectStdioTransport } from './transports/stdioTransport.js';
@@ -76,13 +83,29 @@ async function createMcpServerInstance(): Promise<McpServer> {
     { capabilities: { logging: {}, resources: { listChanged: true }, tools: { listChanged: true } } } // Declared capabilities
   );
 
+  // Instantiate the Obsidian REST API Service
+  // This instance will be shared by all tools needing Obsidian access within this server instance.
+  // Error during instantiation here is critical and will be caught by the outer try/catch.
+  logger.debug('Instantiating ObsidianRestApiService...', context);
+  const obsidianService = new ObsidianRestApiService();
+  logger.info('ObsidianRestApiService instantiated successfully.', context);
+
   try {
     // Register all defined resources and tools. These calls populate the server's
     // internal registry, making them available via MCP methods like 'tools/list'.
     logger.debug('Registering resources and tools...', context);
-    await registerEchoResource(server); // Example resource registration
+    // await registerEchoResource(server); // Not currently implemented
     await registerEchoTool(server);     // Example tool registration
-    // Add calls to register other resources/tools here.
+
+    // --- Register Obsidian Tools ---
+    // Pass the obsidianService instance to each registration function.
+    await registerObsidianReadFileTool(server, obsidianService);
+    await registerObsidianUpdateFileTool(server, obsidianService);
+    await registerObsidianDeleteFileTool(server, obsidianService);
+    await registerObsidianListFilesTool(server, obsidianService);
+    await registerObsidianSearchReplaceTool(server, obsidianService); // Register the new tool
+    // TODO: Add registration calls for any other Obsidian tools here
+
     logger.info('Resources and tools registered successfully', context);
   } catch (err) {
     // Registration is critical; log and re-throw errors.
