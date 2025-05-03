@@ -113,15 +113,29 @@ export async function listFiles(
   context: RequestContext
 ): Promise<string[]> {
   // Normalize path: remove leading/trailing slashes for consistency, except for root
-  let normalizedPath = dirPath.trim();
-  if (normalizedPath !== '' && normalizedPath !== '/') {
-      normalizedPath = normalizedPath.replace(/^\/+|\/+$/g, '');
+  let pathSegment = dirPath.trim();
+
+  // Explicitly handle root path variations ('', '/') by setting pathSegment to empty.
+  // This ensures that the final URL constructed later will be '/vault/', which the API
+  // uses to list the root directory contents.
+  if (pathSegment === '' || pathSegment === '/') {
+      pathSegment = ''; // Use empty string to signify root for URL construction
+  } else {
+      // For non-root paths:
+      // 1. Remove any leading/trailing slashes to prevent issues like '/vault//path/' or '/vault/path//'.
+      // 2. URI-encode the remaining path segment to handle special characters safely.
+      pathSegment = encodeURIComponent(pathSegment.replace(/^\/+|\/+$/g, ''));
   }
 
-  const url = normalizedPath ? `/vault/${encodeURIComponent(normalizedPath)}/` : '/vault/';
+  // Construct the final URL for the API request:
+  // - If pathSegment is not empty (i.e., it's a specific directory), format as '/vault/{encoded_path}/'.
+  // - If pathSegment IS empty (signifying the root), format as '/vault/'.
+  // The trailing slash is important for directory listing endpoints in this API.
+  const url = pathSegment ? `/vault/${pathSegment}/` : '/vault/';
+
   const response = await _request<FileListResponse>({
     method: 'GET',
-    url: url,
+    url: url, // Use the correctly constructed URL
   }, context, 'listFiles');
   return response.files;
 }
