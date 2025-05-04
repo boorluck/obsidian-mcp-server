@@ -1,91 +1,126 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
-import { BaseErrorCode, McpError } from "../../../types-global/errors.js";
-import { ErrorHandler, logger, requestContextService } from "../../../utils/index.js";
 import { ObsidianRestApiService } from '../../../services/obsidianRestAPI/index.js';
-// Import input type, response type, schema, and logic function
-import type { ObsidianListFilesInput, ObsidianListFilesResponse } from './logic.js'; // Added Response type
+import { BaseErrorCode, McpError } from "../../../types-global/errors.js";
+import { ErrorHandler, logger, RequestContext, requestContextService } from "../../../utils/index.js";
+// Import necessary types, schema, and logic function from the logic file
+import type { ObsidianListFilesInput, ObsidianListFilesResponse } from './logic.js';
 import { ObsidianListFilesInputSchema, processObsidianListFiles } from './logic.js';
 
 /**
- * Registers the 'obsidian_list_files' tool.
+ * Registers the 'obsidian_list_files' tool with the MCP server.
  *
- * @param server - The MCP server instance.
- * @param obsidianService - The Obsidian REST API service instance.
+ * This tool lists the files and subdirectories within a specified directory
+ * in the user's Obsidian vault. It supports optional filtering by file extension
+ * or by a regular expression matching the entry name.
+ *
+ * The response includes the path of the listed directory, a formatted tree string
+ * representing the contents, and the total count of entries listed after filtering.
+ *
+ * @param {McpServer} server - The MCP server instance to register the tool with.
+ * @param {ObsidianRestApiService} obsidianService - An instance of the Obsidian REST API service
+ *   used to interact with the user's Obsidian vault.
+ * @returns {Promise<void>} A promise that resolves when the tool registration is complete or rejects on error.
+ * @throws {McpError} Throws an McpError if registration fails critically.
  */
 export const registerObsidianListFilesTool = async (
   server: McpServer,
-  obsidianService: ObsidianRestApiService // Inject Obsidian service
+  obsidianService: ObsidianRestApiService // Dependency injection for the Obsidian service
 ): Promise<void> => {
   const toolName = "obsidian_list_files";
-  // Updated description for formatted timestamp and clearer stat names
-  const toolDescription = "Lists files and subdirectories within a specified Obsidian vault folder. Supports optional filtering by extension or name regex. Returns a detailed object containing the listed directory path, total entry count, a formatted timestamp string, and an array of entries, each with name, full path, type (file/directory), and file stats (creationTime, modifiedTime, size). Use an empty string or '/' for dirPath to list the vault root.";
+  // Updated description to reflect the simplified response (path, tree, count)
+  const toolDescription = "Lists files and subdirectories within a specified Obsidian vault folder. Supports optional filtering by extension or name regex. Returns an object containing the listed directory path, a formatted tree string of its contents, and the total entry count. Use an empty string or '/' for dirPath to list the vault root.";
 
-  const registrationContext = requestContextService.createRequestContext({
+  // Create a context specifically for the registration process.
+  const registrationContext: RequestContext = requestContextService.createRequestContext({
     operation: 'RegisterObsidianListFilesTool',
     toolName: toolName,
-    module: 'ObsidianListFilesRegistration'
+    module: 'ObsidianListFilesRegistration' // Identify the module
   });
 
-  logger.info(`Registering tool: ${toolName}`, registrationContext);
+  logger.info(`Attempting to register tool: ${toolName}`, registrationContext);
 
+  // Wrap the registration logic in a tryCatch block for robust error handling during server setup.
   await ErrorHandler.tryCatch(
     async () => {
+      // Use the high-level SDK method `server.tool` for registration.
       server.tool(
         toolName,
         toolDescription,
-        ObsidianListFilesInputSchema.shape, // Pass the raw Zod schema shape
-        async (params: ObsidianListFilesInput) => { // Handler function
-          const handlerContext = requestContextService.createRequestContext({
-            parentContext: registrationContext,
+        ObsidianListFilesInputSchema.shape, // Provide the Zod schema shape for input definition.
+        /**
+         * The handler function executed when the 'obsidian_list_files' tool is called by the client.
+         *
+         * @param {ObsidianListFilesInput} params - The input parameters received from the client,
+         *   validated against the ObsidianListFilesInputSchema shape.
+         * @returns {Promise<CallToolResult>} A promise resolving to the structured result for the MCP client,
+         *   containing either the successful response data (serialized JSON) or an error indication.
+         */
+        async (params: ObsidianListFilesInput) => { // Type matches the inferred input schema
+          // Create a specific context for this handler invocation.
+          const handlerContext: RequestContext = requestContextService.createRequestContext({
+            parentContext: registrationContext, // Link to registration context
             operation: 'HandleObsidianListFilesRequest',
             toolName: toolName,
-            // Log all params including filters
-            params: { dirPath: params.dirPath, fileExtensionFilter: params.fileExtensionFilter, nameRegexFilter: params.nameRegexFilter }
+            params: { // Log all relevant parameters for debugging
+                dirPath: params.dirPath,
+                fileExtensionFilter: params.fileExtensionFilter,
+                nameRegexFilter: params.nameRegexFilter
+            }
           });
-          logger.debug("Handling obsidian_list_files request", handlerContext);
+          logger.debug(`Handling '${toolName}' request`, handlerContext);
 
+          // Wrap the core logic execution in a tryCatch block.
           return await ErrorHandler.tryCatch(
             async () => {
-              // Call the core logic function, passing the service instance
-              // The response is now the enhanced ObsidianListFilesResponse object
-              const response: ObsidianListFilesResponse = await processObsidianListFiles(params, handlerContext, obsidianService);
-              logger.debug("obsidian_list_files processed successfully", handlerContext);
+              // Delegate the actual file listing and filtering logic to the processing function.
+              // Note: The input schema and shape are identical here, so no separate refinement parse is needed.
+              const response: ObsidianListFilesResponse = await processObsidianListFiles(
+                  params,
+                  handlerContext,
+                  obsidianService
+              );
+              logger.debug(`'${toolName}' processed successfully`, handlerContext);
 
-              // Format the enhanced response object into MCP format
+              // Format the successful response object from the logic function into the required MCP CallToolResult structure.
+              // The entire response object (directoryPath, tree, totalEntries) is serialized to JSON.
               return {
                 content: [{
-                  type: "text",
-                  text: JSON.stringify(response, null, 2) // Serialize the whole response object
+                  type: "text", // Standard content type for structured JSON data
+                  text: JSON.stringify(response, null, 2) // Pretty-print JSON
                 }],
-                isError: false
+                isError: false // Indicate successful execution
               };
             },
             {
-              operation: 'processing obsidian_list_files handler',
+              // Configuration for the inner error handler (processing logic).
+              operation: `processing ${toolName} handler`,
               context: handlerContext,
-              input: params,
+              input: params, // Log the full input parameters if an error occurs.
+              // Custom error mapping for consistent error reporting.
               errorMapper: (error: unknown) => new McpError(
                 error instanceof McpError ? error.code : BaseErrorCode.INTERNAL_ERROR,
-                `Error processing obsidian_list_files tool: ${error instanceof Error ? error.message : 'Unknown error'}`,
-                { ...handlerContext }
+                `Error processing ${toolName} tool: ${error instanceof Error ? error.message : 'Unknown error'}`,
+                { ...handlerContext } // Include context
               )
             }
-          );
+          ); // End of inner ErrorHandler.tryCatch
         }
       ); // End of server.tool call
 
       logger.info(`Tool registered successfully: ${toolName}`, registrationContext);
     },
     {
+      // Configuration for the outer error handler (registration process).
       operation: `registering tool ${toolName}`,
       context: registrationContext,
-      errorCode: BaseErrorCode.INTERNAL_ERROR,
+      errorCode: BaseErrorCode.INTERNAL_ERROR, // Default error code for registration failure.
+      // Custom error mapping for registration failures.
       errorMapper: (error: unknown) => new McpError(
         error instanceof McpError ? error.code : BaseErrorCode.INTERNAL_ERROR,
         `Failed to register tool '${toolName}': ${error instanceof Error ? error.message : 'Unknown error'}`,
-        { ...registrationContext }
+        { ...registrationContext } // Include context
       ),
-      critical: true
+      critical: true // Treat registration failure as critical.
     }
-  ); // End of ErrorHandler.tryCatch for registration
+  ); // End of outer ErrorHandler.tryCatch
 };
