@@ -1,177 +1,250 @@
+import path from 'node:path'; // Using POSIX path functions for vault path manipulation
 import { z } from 'zod';
-import path from 'node:path'; // Import path for directory/filename extraction
-import { logger, RequestContext, createFormattedStatWithTokenCount } from '../../../utils/index.js'; // Use new utility name
-import { ObsidianRestApiService } from '../../../services/obsidianRestAPI/index.js';
-import { NoteJson, NoteStat } from '../../../services/obsidianRestAPI/types.js'; // Import NoteStat
+import { NoteJson, ObsidianRestApiService } from '../../../services/obsidianRestAPI/index.js';
 import { BaseErrorCode, McpError } from '../../../types-global/errors.js';
+import { createFormattedStatWithTokenCount, logger, RequestContext } from '../../../utils/index.js';
 
-// --- Schema and Type Definitions ---
+// ====================================================================================
+// Schema Definitions for Input Validation
+// ====================================================================================
 
-const ReadFileFormatSchema = z.enum(['markdown', 'json']).default('markdown');
+/**
+ * Defines the allowed formats for the returned file content.
+ * - 'markdown': Returns the raw Markdown content as a string.
+ * - 'json': Returns a structured NoteJson object including content, frontmatter, tags, and stats.
+ */
+const ReadFileFormatSchema = z.enum(['markdown', 'json'])
+  .default('markdown')
+  .describe("Specifies the format for the returned content ('markdown' or 'json'). Defaults to 'markdown'.");
 
-// Updated Input Schema
+/**
+ * Zod schema for validating the input parameters of the 'obsidian_read_file' tool.
+ */
 export const ObsidianReadFileInputSchema = z.object({
-  /** The vault-relative path to the target file (e.g., "Folder/My Note.md"). Tries case-sensitive first, then attempts a case-insensitive fallback if not found. */
-  filePath: z.string().min(1, "filePath cannot be empty").describe(
-    'The vault-relative path to the target file (e.g., "Folder/My Note.md"). Must include the file extension. Tries case-sensitive first, then attempts a case-insensitive fallback if not found.'
-  ),
-  /** Specifies the format for the returned content. Defaults to 'markdown'. */
-  format: ReadFileFormatSchema.optional().describe(
-    "Specifies the format for the returned content. 'markdown' returns the raw file content as a string. 'json' returns a structured NoteJson object containing content, parsed frontmatter, tags, and file metadata (stat). Defaults to 'markdown'."
-  ),
-  /** If true and format is 'markdown', includes file stats (creationTime, modifiedTime, size) in the response. Defaults to false. Ignored if format is 'json' (stats always included). */
-  includeStat: z.boolean().optional().default(false).describe(
-    "If true and format is 'markdown', includes file stats (creationTime, modifiedTime, size) in the response. Defaults to false. Ignored if format is 'json' (stats always included)."
-  ),
+  /**
+   * The vault-relative path to the target file (e.g., "Folder/My Note.md").
+   * Must include the file extension. The tool first attempts a case-sensitive match.
+   * If not found, it attempts a case-insensitive fallback search within the same directory.
+   */
+  filePath: z.string().min(1, "filePath cannot be empty")
+    .describe('The vault-relative path to the target file (e.g., "Folder/My Note.md"). Tries case-sensitive first, then case-insensitive fallback.'),
+  /**
+   * Specifies the desired format for the returned content.
+   * 'markdown' returns the raw file content as a string.
+   * 'json' returns a structured NoteJson object containing content, parsed frontmatter, tags, and file metadata (stat).
+   * Defaults to 'markdown'.
+   */
+  format: ReadFileFormatSchema.optional() // Optional, defaults to 'markdown' via ReadFileFormatSchema
+    .describe("Format for the returned content ('markdown' or 'json'). Defaults to 'markdown'."),
+  /**
+   * If true and the requested format is 'markdown', includes formatted file statistics
+   * (creation time, modification time, token count estimate) in the response's 'stat' field.
+   * Defaults to false. This flag is ignored if the format is 'json', as stats are always included within the NoteJson object itself (and also added to the top-level 'stat' field in the response).
+   */
+  includeStat: z.boolean().optional().default(false)
+    .describe("If true and format is 'markdown', includes file stats in the response. Defaults to false. Ignored if format is 'json'."),
 }).describe(
-  'Defines the input parameters for retrieving the content and optionally metadata of a specific file within the connected Obsidian vault. Includes a case-insensitive fallback if the exact path is not found.'
+  'Retrieves the content and optionally metadata of a specific file within the connected Obsidian vault. Supports case-insensitive path fallback.'
 );
 
+/**
+ * TypeScript type inferred from the input schema (`ObsidianReadFileInputSchema`).
+ * Represents the validated input parameters used within the core processing logic.
+ */
 export type ObsidianReadFileInput = z.infer<typeof ObsidianReadFileInputSchema>;
 
-// --- Enhanced Response Type ---
-// Define the *new* Stat type containing formatted timestamps and token count
-type FormattedStat = { createdTime: string; modifiedTime: string; tokenCountEstimate: number }; // Updated fields
+// ====================================================================================
+// Response Type Definition
+// ====================================================================================
 
-// Response is now always an object
+/**
+ * Represents the structure of file statistics after formatting, including
+ * human-readable timestamps and an estimated token count.
+ */
+type FormattedStat = {
+  /** Creation time formatted as a standard date-time string (e.g., "05:29:00 PM | 05-03-2025"). */
+  createdTime: string;
+  /** Last modified time formatted as a standard date-time string (e.g., "05:29:00 PM | 05-03-2025"). */
+  modifiedTime: string;
+  /** Estimated token count of the file content (using tiktoken 'gpt-4o'). */
+  tokenCountEstimate: number;
+};
+
+/**
+ * Defines the structure of the successful response returned by the `processObsidianReadFile` function.
+ * This object is typically serialized to JSON and sent back to the client.
+ */
 export interface ObsidianReadFileResponse {
-    content: string | NoteJson; // Content in the requested format (or the full NoteJson if format='json')
-    // timestamp: string; // REMOVED
-    stat?: FormattedStat; // Use the updated formatted stat type, make optional
-}
-
-// Helper function to map NoteStat to FileStat - REMOVED (using addFormattedTimestampsToStat)
-
-
-// --- Helper Function to Format Timestamp ---
-// REMOVED - Now using shared utility
-
-
-// --- Core Logic Function ---
+    /**
+     * The content of the file in the requested format.
+     * If format='markdown', this is a string.
+     * If format='json', this is a NoteJson object (which also contains the content string and stats).
+     */
+    content: string | NoteJson;
+    /**
+     * Optional formatted file statistics.
+      * Included if format='json', or if format='markdown' and includeStat=true.
+      */
+     stats?: FormattedStat; // Renamed from stat
+ }
+ 
+// ====================================================================================
+// Core Logic Function
+// ====================================================================================
 
 /**
  * Processes the core logic for reading a file from the Obsidian vault.
- * Always fetches JSON internally to get stats, then formats the response.
  *
- * @function processObsidianReadFile
+ * It attempts to read the file using the provided path (case-sensitive first,
+ * then case-insensitive fallback). It always fetches the full NoteJson object
+ * internally to access file statistics. Finally, it formats the response
+ * according to the requested format ('markdown' or 'json') and the 'includeStat' flag.
+ *
  * @param {ObsidianReadFileInput} params - The validated input parameters.
- * @param {RequestContext} context - The request context for logging and tracing.
- * @param {ObsidianRestApiService} obsidianService - The Obsidian REST API service instance.
- * @returns {Promise<ObsidianReadFileResponse>} An object containing content, timestamp, and optional stats.
- * @throws {McpError} If the file cannot be read or the API request fails.
+ * @param {RequestContext} context - The request context for logging and correlation.
+ * @param {ObsidianRestApiService} obsidianService - An instance of the Obsidian REST API service.
+ * @returns {Promise<ObsidianReadFileResponse>} A promise resolving to the structured success response
+ *   containing the file content and optionally formatted statistics.
+ * @throws {McpError} Throws an McpError if the file cannot be found (even with fallback),
+ *   if there's an ambiguous fallback match, or if any other API interaction fails.
  */
 export const processObsidianReadFile = async (
   params: ObsidianReadFileInput,
   context: RequestContext,
-  obsidianService: ObsidianRestApiService // Inject the service instance
+  obsidianService: ObsidianRestApiService
 ): Promise<ObsidianReadFileResponse> => {
-  logger.debug(`Processing obsidian_read_file request for path: ${params.filePath}`, { ...context, format: params.format, includeStat: params.includeStat });
+  const { filePath: originalFilePath, format: requestedFormat, includeStat } = params;
+  let effectiveFilePath = originalFilePath; // Track the actual path used (might change during fallback)
 
-  const originalFilePath = params.filePath;
-  const requestedFormat = params.format ?? 'markdown'; // Default to markdown if not provided
-  const includeStat = params.includeStat;
-  let effectiveFilePath = originalFilePath; // Track the path used after potential fallback
+  logger.debug(`Processing obsidian_read_file request for path: ${originalFilePath}`, { ...context, format: requestedFormat, includeStat });
 
   try {
     let noteJson: NoteJson;
-    // --- Read File (always fetch JSON internally, handle fallback) ---
+
+    // --- Step 1: Read File Content (always fetch JSON internally) ---
+    const readContext = { ...context, operation: 'readFileAsJson' };
     try {
-      // Initial attempt with the provided path, fetching JSON
-      logger.debug(`Attempting to read file as JSON (case-sensitive): ${originalFilePath}`, context);
-      noteJson = await obsidianService.getFileContent(originalFilePath, 'json', context) as NoteJson;
+      // Attempt 1: Read using the provided path (case-sensitive)
+      logger.debug(`Attempting to read file as JSON (case-sensitive): ${originalFilePath}`, readContext);
+      noteJson = await obsidianService.getFileContent(originalFilePath, 'json', readContext) as NoteJson;
       effectiveFilePath = originalFilePath; // Confirm exact path worked
-      logger.debug(`Successfully read file as JSON (case-sensitive): ${originalFilePath}`, context);
+      logger.debug(`Successfully read file as JSON using exact path: ${originalFilePath}`, readContext);
     } catch (error) {
-      // If the initial attempt failed with NOT_FOUND, try case-insensitive fallback
+      // Attempt 2: Case-insensitive fallback if initial read failed with NOT_FOUND
       if (error instanceof McpError && error.code === BaseErrorCode.NOT_FOUND) {
-        logger.info(`File not found with exact path: ${originalFilePath}. Attempting case-insensitive fallback.`, context);
+        logger.info(`File not found with exact path: ${originalFilePath}. Attempting case-insensitive fallback.`, readContext);
+        const fallbackContext = { ...readContext, subOperation: 'caseInsensitiveFallback' };
 
         try {
-          // Extract directory and filename using POSIX separators
+          // Use POSIX path functions as vault paths are typically /-separated
           const dirname = path.posix.dirname(originalFilePath);
           const filenameLower = path.posix.basename(originalFilePath).toLowerCase();
-          const dirToList = dirname === '.' ? '/' : dirname; // Use root if dirname is '.'
+          // Handle case where the file is in the vault root (dirname is '.')
+          const dirToList = dirname === '.' ? '/' : dirname;
 
-          logger.debug(`Listing directory for fallback: ${dirToList}`, context);
-          const filesInDir = await obsidianService.listFiles(dirToList, context);
+          logger.debug(`Listing directory for fallback: ${dirToList}`, fallbackContext);
+          const filesInDir = await obsidianService.listFiles(dirToList, fallbackContext);
 
+          // Filter directory listing for files matching the lowercase filename
           const matches = filesInDir.filter(f =>
-            !f.endsWith('/') && // Ensure it's a file
+            !f.endsWith('/') && // Ensure it's a file, not a directory entry ending in /
             path.posix.basename(f).toLowerCase() === filenameLower
           );
 
           if (matches.length === 1) {
             // Found exactly one case-insensitive match
             const correctFilename = path.posix.basename(matches[0]);
-            effectiveFilePath = path.posix.join(dirname, correctFilename); // Update effective path
-            logger.info(`Found case-insensitive match: ${effectiveFilePath}. Retrying read as JSON.`, context);
+            effectiveFilePath = path.posix.join(dirname, correctFilename); // Construct the correct path
+            logger.info(`Found case-insensitive match: ${effectiveFilePath}. Retrying read as JSON.`, fallbackContext);
 
-            // Retry reading with the correct path, fetching JSON
-            noteJson = await obsidianService.getFileContent(effectiveFilePath, 'json', context) as NoteJson;
-            logger.debug(`Successfully read file as JSON (case-insensitive fallback): ${effectiveFilePath}`, context);
+            // Retry reading the file content using the corrected path
+            noteJson = await obsidianService.getFileContent(effectiveFilePath, 'json', fallbackContext) as NoteJson;
+            logger.debug(`Successfully read file as JSON using fallback path: ${effectiveFilePath}`, fallbackContext);
 
           } else if (matches.length > 1) {
-            logger.error(`Case-insensitive fallback failed: Multiple matches found for ${filenameLower} in ${dirToList}.`, { ...context, matches });
-            throw new McpError(BaseErrorCode.NOT_FOUND, `File not found: Ambiguous case-insensitive matches for '${originalFilePath}'.`, context);
+            // Ambiguous match: Multiple files match case-insensitively
+            logger.error(`Case-insensitive fallback failed: Multiple matches found for ${filenameLower} in ${dirToList}.`, { ...fallbackContext, matches });
+            throw new McpError(
+                BaseErrorCode.CONFLICT, // Use CONFLICT for ambiguity
+                `File read failed: Ambiguous case-insensitive matches for '${originalFilePath}'. Found: [${matches.join(', ')}]`,
+                fallbackContext
+            );
           } else {
-            logger.error(`Case-insensitive fallback failed: No match found for ${filenameLower} in ${dirToList}.`, context);
-            throw new McpError(BaseErrorCode.NOT_FOUND, `File not found: '${originalFilePath}' (case-insensitive fallback also failed).`, context);
+            // No match found even with fallback
+            logger.error(`Case-insensitive fallback failed: No match found for ${filenameLower} in ${dirToList}.`, fallbackContext);
+            throw new McpError(
+                BaseErrorCode.NOT_FOUND,
+                `File not found: '${originalFilePath}' (case-insensitive fallback also failed).`,
+                fallbackContext
+            );
           }
         } catch (fallbackError) {
-          if (fallbackError instanceof McpError) throw fallbackError;
+          // Catch errors specifically from the fallback logic
+          if (fallbackError instanceof McpError) throw fallbackError; // Re-throw known errors
+          // Wrap unexpected fallback errors
           const errorMessage = `Unexpected error during case-insensitive fallback for ${originalFilePath}`;
-          logger.error(errorMessage, fallbackError instanceof Error ? fallbackError : undefined, context);
-          throw new McpError(BaseErrorCode.INTERNAL_ERROR, errorMessage, context);
+          logger.error(errorMessage, fallbackError instanceof Error ? fallbackError : undefined, fallbackContext);
+          throw new McpError(BaseErrorCode.INTERNAL_ERROR, `${errorMessage}: ${fallbackError instanceof Error ? fallbackError.message : String(fallbackError)}`, fallbackContext);
         }
-      } else if (error instanceof McpError) {
-        throw error; // Re-throw other McpErrors from the initial attempt
       } else {
-        throw error; // Re-throw unexpected errors from initial attempt
+        // Re-throw errors from the initial read attempt that were not NOT_FOUND
+        throw error;
       }
     }
 
-    // --- Format Response ---
-    // const timestamp = formatTimestamp(new Date()); // REMOVED
-    // Create the formatted stat object using the new utility, passing content, handle potential null return
-    const formattedStatResult = noteJson.stat
-        ? await createFormattedStatWithTokenCount(noteJson.stat, noteJson.content ?? '', context) // Pass content, await
-        : undefined;
-    const formattedStat = formattedStatResult === null ? undefined : formattedStatResult; // Convert null to undefined
+    // --- Step 2: Format the Response ---
+    const formatContext = { ...context, operation: 'formatResponse', effectiveFilePath };
+    logger.debug(`Formatting response. Requested format: ${requestedFormat}, Include stat: ${includeStat}`, formatContext);
 
+    // Generate formatted statistics using the utility function.
+    // Provide the content string for token counting. Handle cases where stat might be missing.
+    const formattedStatResult = noteJson.stat
+        ? await createFormattedStatWithTokenCount(noteJson.stat, noteJson.content ?? '', formatContext) // Await the async utility
+        : undefined;
+    // Ensure stat is undefined if the utility returned null (e.g., token counting failed)
+    const formattedStat = formattedStatResult === null ? undefined : formattedStatResult;
+
+    // Initialize the response object
     const response: ObsidianReadFileResponse = {
-        content: '', // Placeholder, will be overwritten
-        // timestamp: timestamp, // REMOVED
-        // Stat is included conditionally based on format/flag
+        content: '', // Placeholder, will be set based on format
+        // stat is added conditionally below
     };
 
+    // Populate response based on requested format
     if (requestedFormat === 'json') {
-        // For JSON format, return the full NoteJson object as content,
-        // but replace its internal stat with the formatted one.
-        // Also include the formatted stat at the top level.
-        if (noteJson.stat) {
-             // Replace the original stat in noteJson with the formatted one
-             (noteJson as any).stat = formattedStat; // Use 'any' for simplicity or define a new type
+        // Return the full NoteJson object, but replace its internal stat with the formatted one for consistency.
+        // Also include the formatted stat at the top level of the response.
+        if (noteJson.stat && formattedStat) {
+             // Modify the NoteJson object directly (use 'any' cast or define a specific type if preferred)
+             (noteJson as any).stat = formattedStat;
         }
         response.content = noteJson;
-        response.stat = formattedStat; // Include the formatted stat at the top level
-    } else { // markdown format
-        response.content = noteJson.content ?? ''; // Use the content string from NoteJson
-        if (includeStat) {
-            response.stat = formattedStat; // Include formatted stats only if requested for markdown
+        response.stats = formattedStat; // Always include formatted stat at top level for JSON format
+        logger.debug(`Response format set to JSON, including full NoteJson and formatted stat.`, formatContext);
+    } else { // 'markdown' format
+        response.content = noteJson.content ?? ''; // Extract the markdown content string
+        if (includeStat && formattedStat) {
+            response.stats = formattedStat; // Include formatted stats only if requested for markdown
+            logger.debug(`Response format set to markdown, including formatted stat as requested.`, formatContext);
+        } else {
+            logger.debug(`Response format set to markdown, excluding stat (includeStat=${includeStat}).`, formatContext);
         }
     }
 
+    logger.debug(`Successfully processed read request for ${effectiveFilePath}.`, context);
     return response;
 
   } catch (error) {
-     // Catch errors from the outer try block (initial read or fallback logic)
+     // Catch any errors that propagated up (e.g., from initial read, fallback, or unexpected issues)
      if (error instanceof McpError) {
-        throw error;
+        // Log known McpErrors that reached this top level
+        logger.error(`McpError during file read process for ${originalFilePath}: ${error.message}`, error, context);
+        throw error; // Re-throw McpError
      } else {
-        // Wrap unexpected errors
+        // Wrap unexpected errors in a generic McpError
         const errorMessage = `Unexpected error processing read request for ${originalFilePath}`;
         logger.error(errorMessage, error instanceof Error ? error : undefined, context);
-        throw new McpError(BaseErrorCode.INTERNAL_ERROR, errorMessage, context);
+        throw new McpError(BaseErrorCode.INTERNAL_ERROR, `${errorMessage}: ${error instanceof Error ? error.message : String(error)}`, context);
      }
   }
 };
