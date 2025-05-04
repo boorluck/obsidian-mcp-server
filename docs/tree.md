@@ -1,6 +1,6 @@
 # obsidian-mcp-server - Directory Structure
 
-Generated on: 2025-05-04 00:08:56
+Generated on: 2025-05-04 23:02:25
 
 
 ```
@@ -22,6 +22,10 @@ obsidian-mcp-server
     ├── mcp-server
     │   ├── tools
     │   │   ├── obsidianDeleteFileTool
+    │   │   │   ├── index.ts
+    │   │   │   ├── logic.ts
+    │   │   │   └── registration.ts
+    │   │   ├── obsidianGlobalSearchTool
     │   │   │   ├── index.ts
     │   │   │   ├── logic.ts
     │   │   │   └── registration.ts
@@ -49,18 +53,21 @@ obsidian-mcp-server
     │   ├── .DS_Store
     │   └── server.ts
     ├── services
-    │   └── obsidianRestAPI
+    │   ├── obsidianRestAPI
     │   │   ├── methods
-    │   │       ├── activeFileMethods.ts
-    │   │       ├── commandMethods.ts
-    │   │       ├── openMethods.ts
-    │   │       ├── patchMethods.ts
-    │   │       ├── periodicNoteMethods.ts
-    │   │       ├── searchMethods.ts
-    │   │       └── vaultMethods.ts
+    │   │   │   ├── activeFileMethods.ts
+    │   │   │   ├── commandMethods.ts
+    │   │   │   ├── openMethods.ts
+    │   │   │   ├── patchMethods.ts
+    │   │   │   ├── periodicNoteMethods.ts
+    │   │   │   ├── searchMethods.ts
+    │   │   │   └── vaultMethods.ts
     │   │   ├── index.ts
     │   │   ├── service.ts
     │   │   └── types.ts
+    │   └── vaultCache
+    │   │   ├── index.ts
+    │   │   └── service.ts
     ├── types-global
     │   └── errors.ts
     ├── utils
