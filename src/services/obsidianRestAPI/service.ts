@@ -112,7 +112,10 @@ export class ObsidianRestApiService {
             case 404:
               errorCode = BaseErrorCode.NOT_FOUND;
               errorMessage = `Obsidian API Not Found: ${config.url}`;
-              break;
+              // Log 404s at debug level, as they might be expected (e.g., checking existence)
+              logger.debug(errorMessage, { ...operationContext, ...errorDetails });
+              throw new McpError(errorCode, errorMessage, operationContext);
+              // NOTE: We throw immediately after logging debug for 404, skipping the general error log below.
             case 405:
               errorCode = BaseErrorCode.VALIDATION_ERROR; // Method not allowed often implies incorrect usage
               errorMessage = `Obsidian API Method Not Allowed: ${config.method} on ${config.url}`;
@@ -122,6 +125,7 @@ export class ObsidianRestApiService {
               errorMessage = "Obsidian API Service Unavailable.";
               break;
           }
+          // General error logging for non-404 client/server errors handled above
           logger.error(errorMessage, { ...operationContext, ...errorDetails });
           throw new McpError(errorCode, errorMessage, operationContext);
         } else if (axiosError.request) {
