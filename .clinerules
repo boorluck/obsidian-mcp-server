@@ -2,6 +2,13 @@
 
 This cheatsheet provides quick references for common patterns, utilities, server configuration, and the Obsidian REST API service within the `obsidian-mcp-server` codebase, based on the `mcp-ts-template` and updated for MCP Spec 2025-03-26.
 
+# Instructions for using this file:
+1. Carefully review this file line by line to understand this repo and Model Context Protocol (MCP).
+2. If you are creating new MCP Server tools, review the files:
+  - src/mcp-server/tools/obsidianUpdateFileTool (all files)
+  - src/services/obsidianRestAPI (Any files relevant to the tool you are creating)
+3. Keep this file updated to accurately reflect the state of the code base
+
 ## Server Transports & Configuration
 
 The server can run using different communication transports, configured via environment variables.
