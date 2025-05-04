@@ -6,7 +6,9 @@ This cheatsheet provides quick references for common patterns, utilities, server
 1. Carefully review this file line by line to understand this repo and Model Context Protocol (MCP).
 2. If you are creating new MCP Server tools, review the files:
   - src/mcp-server/tools/obsidianUpdateFileTool (all files)
+  - src/mcp-server/tools/obsidianGlobalSearchTool (all files)
   - src/services/obsidianRestAPI (Any files relevant to the tool you are creating)
+  - src/services/vaultCache (If the tool needs vault structure/metadata caching)
 3. Keep this file updated to accurately reflect the state of the code base
 
 ## Server Transports & Configuration
@@ -162,6 +164,8 @@ This service provides a typed interface for interacting with the Obsidian Local 
 - Encapsulates all communication logic with the Obsidian REST API.
 - Provides methods for common Obsidian operations like reading/writing files, searching, executing commands, etc.
 - Handles authentication (API key) and configuration (base URL, SSL verification) based on environment variables (`OBSIDIAN_API_KEY`, `OBSIDIAN_BASE_URL`, `OBSIDIAN_VERIFY_SSL`).
+- Includes robust path encoding for vault files and an increased default request timeout (60s).
+- Performs an initial status check on server startup (`src/index.ts`).
 
 ### Architecture
 
@@ -211,6 +215,32 @@ async function handleReadFile(filePath: string, context: RequestContext) {
 ```
 
 - **Key Takeaway**: Use the methods provided by `ObsidianRestApiService` for all interactions with the Obsidian vault via the REST API. Do not make direct HTTP calls to the Obsidian API elsewhere.
+
+## Vault Cache Service (`src/services/vaultCache/`)
+
+This service provides an in-memory cache of the Obsidian vault's file structure and potentially other metadata.
+
+### Purpose
+
+- Improve performance for operations that frequently need to list or check for files (e.g., global search).
+- Provide a fallback mechanism if the direct Obsidian API is temporarily unavailable for certain read operations (future enhancement).
+- Reduce load on the Obsidian Local REST API.
+
+### Architecture
+
+- **`service.ts` (`VaultCacheService` class):**
+    - Takes an `ObsidianRestApiService` instance in its constructor.
+    - Manages the cache state (e.g., a Map or Set of file paths).
+    - Provides methods to build/rebuild the cache (`buildVaultCache`) by calling the Obsidian API (`listFiles`).
+    - Exposes methods to query the cache (e.g., `fileExists`, `findFiles`).
+    - Handles cache readiness state and potential background updates.
+- **`index.ts`:** Barrel file exporting the service.
+
+### Usage
+
+- Instantiated in `src/index.ts` and `src/mcp-server/server.ts`.
+- Passed as a dependency to tools that can benefit from it (e.g., `obsidianGlobalSearchTool`).
+- Cache build is triggered asynchronously on server startup. Tools should check cache readiness before relying on it.
 
 ## Core Utilities Integration
 
@@ -483,9 +513,9 @@ This project includes several utility scripts located in the `scripts/` director
 
 1.  **Directory**: `src/mcp-server/tools/yourToolName/`
 2.  **Logic (`logic.ts`)**: Define input/output types, Zod schema, and core processing function. Use `ObsidianRestApiService` if interaction with Obsidian is needed.
-3.  **Registration (`registration.ts`)**: Import logic, schema, `McpServer`, `ErrorHandler`. **Use the high-level `server.tool(name, description, schemaShape, async handler => { ... })` (SDK v1.10.2+).** Ensure handler returns `CallToolResult` (`{ content: [...], isError: boolean }`). Wrap handler logic and registration in `ErrorHandler.tryCatch`.
+3.  **Registration (`registration.ts`)**: Import logic, schema, `McpServer`, `ErrorHandler`. **Use the high-level `server.tool(name, description, schemaShape, async handler => { ... })` (SDK v1.10.2+).** Pass required services (e.g., `ObsidianRestApiService`, `VaultCacheService`) to the handler. Ensure handler returns `CallToolResult` (`{ content: [...], isError: boolean }`). Wrap handler logic and registration in `ErrorHandler.tryCatch`.
 4.  **Index (`index.ts`)**: Export registration function.
-5.  **Server (`src/mcp-server/server.ts`)**: Import and call registration function within `createMcpServerInstance`.
+5.  **Server (`src/mcp-server/server.ts`)**: Import and call registration function within `createMcpServerInstance`, passing the instantiated services.
 
 ### Adding a Resource
 
@@ -498,13 +528,14 @@ This project includes several utility scripts located in the `scripts/` director
 ## Key File Locations
 
 - **Main Entry**: `src/index.ts` (Initializes server, handles startup/shutdown)
-- **Server Setup**: `src/mcp-server/server.ts` (Handles transport logic (stdio/http), session management (http), registers tools/resources)
+- **Server Setup**: `src/mcp-server/server.ts` (Handles transport logic, session management, instantiates services, registers tools/resources)
 - **HTTP Auth Middleware**: `src/mcp-server/transports/authentication/authMiddleware.ts`
 - **Configuration**: `src/config/index.ts` (Loads env vars, package info, initializes logger, Obsidian API config)
 - **Obsidian Service**: `src/services/obsidianRestAPI/` (Service, methods, types for Obsidian API)
+- **Vault Cache Service**: `src/services/vaultCache/` (Service for caching vault structure)
 - **Global Types**: `src/types-global/`
 - **Utilities**: `src/utils/` (Main barrel file `index.ts` exporting from subdirs: `internal`, `metrics`, `parsing`, `security`)
-- **Tools**: `src/mcp-server/tools/` (Contains specific tool implementations like `obsidianReadFileTool`)
+- **Tools**: `src/mcp-server/tools/` (Contains specific tool implementations like `obsidianReadFileTool`, `obsidianGlobalSearchTool`)
 - **Resources**: `src/mcp-server/resources/` (Currently empty, place resource implementations here)
 - **Client Config Example**: `mcp-client-config.example.json` (Example config for connecting clients)
 
