@@ -32,7 +32,7 @@ export const ObsidianListFilesInputSchema = z.object({
    * Only files and directories whose names match the regex will be included.
    * Example: "^\\d{4}-\\d{2}-\\d{2}" (matches names starting with YYYY-MM-DD)
    */
-  nameRegexFilter: z.string().optional()
+  nameRegexFilter: z.string().nullable().optional() // Allow null in addition to string/undefined
     .describe('Optional regex pattern (JavaScript syntax) to filter results by name.'),
 }).describe(
   'Input parameters for listing files and subdirectories within a specified Obsidian vault directory, with optional filtering.'
@@ -160,8 +160,8 @@ export const processObsidianListFiles = async (
       logger.debug(`Applied extension filter (${fileExtensionFilter.join(', ')}). ${initialCount} -> ${fileNames.length} items remaining.`, filterContext);
     }
 
-    // Apply regex name filter if provided
-    if (nameRegexFilter) {
+    // Apply regex name filter if provided and is a non-empty string
+    if (nameRegexFilter && nameRegexFilter.trim() !== '') {
       const initialCount = fileNames.length;
       try {
         const regex = new RegExp(nameRegexFilter); // Compile the regex pattern
