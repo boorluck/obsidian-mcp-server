@@ -6,12 +6,26 @@ import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { config, environment } from "./config/index.js"; // This loads .env via dotenv.config()
 import { initializeAndStartServer } from "./mcp-server/server.js";
 import { requestContextService } from "./utils/index.js";
+// Import Services
+import { ObsidianRestApiService } from './services/obsidianRestAPI/index.js';
+import { VaultCacheService } from './services/vaultCache/index.js'; // Import VaultCacheService
 
 /**
- * The main MCP server instance.
+ * The main MCP server instance (only stored globally for stdio shutdown).
  * @type {McpServer | undefined}
  */
 let server: McpServer | undefined;
+/**
+ * Shared Obsidian REST API service instance.
+ * @type {ObsidianRestApiService | undefined}
+ */
+let obsidianService: ObsidianRestApiService | undefined;
+/**
+ * Shared Vault Cache service instance.
+ * @type {VaultCacheService | undefined}
+ */
+let vaultCacheService: VaultCacheService | undefined;
+
 
 /**
  * Gracefully shuts down the main MCP server.
@@ -29,14 +43,16 @@ const shutdown = async (signal: string) => {
   logger.info(`Received ${signal}. Starting graceful shutdown...`, shutdownContext);
 
   try {
-    // Close the main MCP server
+    // Close the main MCP server (only relevant for stdio)
     if (server) {
       logger.info("Closing main MCP server...", shutdownContext);
       await server.close();
       logger.info("Main MCP server closed successfully", shutdownContext);
     } else {
-      logger.warning("Server instance not found during shutdown.", shutdownContext);
+      logger.warning("Server instance not found during shutdown (expected for HTTP transport).", shutdownContext);
     }
+
+    // Add any other necessary cleanup here (e.g., closing database connections if added later)
 
     logger.info("Graceful shutdown completed successfully", shutdownContext);
     process.exit(0);
@@ -93,13 +109,45 @@ const start = async () => {
   logger.info(`Starting ${config.mcpServerName} v${config.mcpServerVersion} (Transport: ${transportType})...`, startupContext);
 
   try {
+    // --- Instantiate Shared Services ---
+    logger.debug("Instantiating shared services...", startupContext);
+    obsidianService = new ObsidianRestApiService(); // Instantiate Obsidian Service
+
+    // --- Perform Initial Obsidian API Status Check ---
+    try {
+        logger.info("Performing initial Obsidian API status check...", startupContext);
+        const status = await obsidianService.checkStatus(startupContext);
+        if (status?.service !== 'Obsidian Local REST API' || !status?.authenticated) {
+             logger.error("Obsidian API status check failed or indicates authentication issue.", { ...startupContext, status });
+             // Decide if this should be fatal. For now, log error and continue,
+             // but subsequent operations will likely fail.
+             // throw new Error("Obsidian API connection/authentication failed."); // Uncomment to make fatal
+        } else {
+            logger.info("Obsidian API status check successful.", { ...startupContext, obsidianVersion: status.versions.obsidian, pluginVersion: status.versions.self });
+        }
+    } catch (statusError) {
+         logger.error("Critical error during initial Obsidian API status check. Check OBSIDIAN_BASE_URL, OBSIDIAN_API_KEY, and plugin status.", {
+            ...startupContext,
+            error: statusError instanceof Error ? statusError.message : String(statusError),
+            stack: statusError instanceof Error ? statusError.stack : undefined,
+         });
+         // Make this fatal, as the server is useless without API connection
+         throw new Error(`Initial Obsidian API connection failed: ${statusError instanceof Error ? statusError.message : String(statusError)}`);
+    }
+    // --- End Status Check ---
+
+    vaultCacheService = new VaultCacheService(obsidianService); // Instantiate Cache Service, passing Obsidian Service
+    logger.info("Shared services instantiated.", startupContext);
+    // --- End Service Instantiation ---
+
+
     // Initialize the server instance and start the selected transport
     logger.debug("Initializing and starting MCP server transport", startupContext);
 
-    // Start the server transport. For stdio, this returns the server instance.
-    // For http, it sets up the listener and returns void (or potentially the http.Server).
-    // We only need to store the instance for stdio shutdown.
-    const potentialServerInstance = await initializeAndStartServer();
+    // Start the server transport. Services are now instantiated within initializeAndStartServer -> startTransport -> createMcpServerInstance.
+    // For stdio, this returns the server instance.
+    // For http, it sets up the listener and returns void.
+    const potentialServerInstance = await initializeAndStartServer(); // No longer pass obsidianService
     if (transportType === 'stdio' && potentialServerInstance instanceof McpServer) {
         server = potentialServerInstance; // Store only for stdio
     } else {
@@ -119,6 +167,24 @@ const start = async () => {
       ...startupContext,
       startTime: new Date().toISOString(),
     });
+
+    // --- Trigger Background Cache Build ---
+    // Start building the cache, but don't wait for it to finish.
+    // The server will be operational while the cache builds.
+    // Tools needing the cache should check its readiness state.
+    logger.info("Triggering background vault cache build...", startupContext);
+    // No 'await' here - run in background
+    vaultCacheService.buildVaultCache().catch(cacheBuildError => {
+        // Log errors during the background build process
+        logger.error("Error occurred during background vault cache build", {
+            ...startupContext, // Use startup context for correlation
+            operation: 'BackgroundCacheBuild',
+            error: cacheBuildError instanceof Error ? cacheBuildError.message : String(cacheBuildError),
+            stack: cacheBuildError instanceof Error ? cacheBuildError.stack : undefined,
+        });
+    });
+    // --- End Cache Build Trigger ---
+
 
     // --- Signal and Error Handling Setup ---
 
