@@ -1,4 +1,4 @@
-# Obsidian MCP Server Obsidian Logo 💎
+# obsidian-mcp-server
 
 [![TypeScript](https://img.shields.io/badge/TypeScript-^5.8.3-blue.svg)](https://www.typescriptlang.org/)
 [![Node.js](https://img.shields.io/badge/Node.js-%3E%3D18-blue.svg)](https://nodejs.org/)
@@ -21,16 +21,17 @@ Built upon the `mcp-ts-template`, this server provides a secure and reliable way
 
 ## ✨ Key Features
 
-| Feature Category              | Description                                                                                                                                                                                                          |
-| :---------------------------- | :------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| 💎 **Obsidian Integration**   | Interact directly with your Obsidian vault using MCP tools.                                                                                                                                                          |
-| 🔧 **Core Vault Operations**  | Provides tools for reading (`obsidian_read_file`), updating (`obsidian_update_file`), searching/replacing (`obsidian_search_replace`), listing (`obsidian_list_files`), and deleting (`obsidian_delete_file`) files. |
-| 🚀 **Production Utilities**   | Inherits logging, error handling, ID generation, rate limiting, request context tracking, and input sanitization from the `mcp-ts-template`.                                                                         |
-| 🔒 **Type Safety & Security** | Leverages TypeScript and Zod for strong type checking and validation. Includes security utilities and requires authentication for HTTP transport.                                                                    |
-| ⚙️ **Robust Error Handling**  | Consistent error categorization and detailed logging for easier debugging.                                                                                                                                           |
-| 🔌 **Flexible Transports**    | Supports both `stdio` (for direct integration) and `http` (Streamable SSE) transports.                                                                                                                               |
-| 📚 **Clear Documentation**    | Comprehensive guides on usage, configuration, and extension.                                                                                                                                                         |
-| 🤖 **Agent Ready**            | Comes with a [.clinerules](.clinerules) file – a developer cheatsheet perfect for LLM coding agents, detailing patterns, file locations, and usage snippets.                                                         |
+| Feature Category              | Description                                                                                                                                                                                                                                                           |
+| :---------------------------- | :-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 💎 **Obsidian Integration**   | Interact directly with your Obsidian vault using MCP tools.                                                                                                                                                                                                           |
+| 🔧 **Core Vault Operations**  | Provides tools for reading (`obsidian_read_file`), updating (`obsidian_update_file`), searching/replacing (`obsidian_search_replace`), listing (`obsidian_list_files`), deleting (`obsidian_delete_file`), and global search (`obsidian_global_search`) across files. |
+| ⚡ **Performance (Cache)**    | Includes a background Vault Cache service (`src/services/vaultCache/`) to use as fallback for search tools (like global search) if direct API fails.                                                                                                                  |
+| 🚀 **Production Utilities**   | Inherits logging, error handling, ID generation, rate limiting, request context tracking, and input sanitization from the `mcp-ts-template`.                                                                                                                          |
+| 🔒 **Type Safety & Security** | Leverages TypeScript and Zod for strong type checking and validation. Includes security utilities and requires authentication for HTTP transport.                                                                                                                     |
+| ⚙️ **Robust Error Handling**  | Consistent error categorization and detailed logging for easier debugging.                                                                                                                                                                                            |
+| 🔌 **Flexible Transports**    | Supports both `stdio` (for direct integration) and `http` (Streamable SSE) transports.                                                                                                                                                                                |
+| 📚 **Clear Documentation**    | Comprehensive guides on usage, configuration, and extension.                                                                                                                                                                                                          |
+| 🤖 **Agent Ready**            | Comes with a [.clinerules](.clinerules) file – a developer cheatsheet perfect for LLM coding agents, detailing patterns, file locations, and usage snippets.                                                                                                          |
 
 ## ✅ Prerequisites
 
@@ -87,6 +88,7 @@ This server exposes the following MCP tools for interacting with your Obsidian v
 | Tool Name                 | Description                                                                                                                                 | Implementation Link                                                                                |
 | :------------------------ | :------------------------------------------------------------------------------------------------------------------------------------------ | :------------------------------------------------------------------------------------------------- |
 | `obsidian_delete_file`    | Permanently deletes a specified file from the vault. Tries exact path, then case-insensitive fallback.                                      | [src/mcp-server/tools/obsidianDeleteFileTool/](src/mcp-server/tools/obsidianDeleteFileTool/)       |
+| `obsidian_global_search`  | Performs search across vault content using text or regex. Supports filtering by modification date.                                          | [src/mcp-server/tools/obsidianGlobalSearchTool/](src/mcp-server/tools/obsidianGlobalSearchTool/)   |
 | `obsidian_list_files`     | Lists files and subdirectories within a specified vault folder. Supports filtering by extension or name regex.                              | [src/mcp-server/tools/obsidianListFilesTool/](src/mcp-server/tools/obsidianListFilesTool/)         |
 | `obsidian_read_file`      | Retrieves the content and metadata of a specified file. Supports markdown or JSON format. Tries exact path, then case-insensitive fallback. | [src/mcp-server/tools/obsidianReadFileTool/](src/mcp-server/tools/obsidianReadFileTool/)           |
 | `obsidian_search_replace` | Performs search-and-replace operations within a target note (file path, active, or periodic). Supports regex, case sensitivity, etc.        | [src/mcp-server/tools/obsidianSearchReplaceTool/](src/mcp-server/tools/obsidianSearchReplaceTool/) |
@@ -103,9 +105,9 @@ This server acts as an intermediary, translating MCP requests into Obsidian Loca
 3.  **Obsidian MCP Server**:
     - Receives the MCP request.
     - Validates the request and arguments using Zod schemas.
-    - Uses the `ObsidianRestApiService` to interact with the Obsidian Local REST API.
-4.  **ObsidianRestApiService**:
-    - Constructs the appropriate HTTP request for the Obsidian Local REST API (e.g., `GET /vault/MyNote.md`).
+    - Uses the `ObsidianRestApiService` (and potentially `VaultCacheService`) to interact with the Obsidian Local REST API or cached data.
+4.  **ObsidianRestApiService / VaultCacheService**:
+    - Constructs the appropriate HTTP request for the Obsidian Local REST API (e.g., `GET /vault/MyNote.md`) or retrieves data from the cache.
     - Adds the `Authorization` header with the `OBSIDIAN_API_KEY`.
     - Sends the request to the `OBSIDIAN_BASE_URL`.
 5.  **Obsidian Local REST API Plugin**:
@@ -143,19 +145,20 @@ Configure the Obsidian MCP server's behavior using these environment variables (
 
 The `src/` directory is organized for clarity:
 
-| Directory                   | Description                                                                                |
-| :-------------------------- | :----------------------------------------------------------------------------------------- |
-| `config/`                   | Loads environment variables (`.env`), package info, and Obsidian API settings.             |
-| `mcp-server/`               | Logic for the MCP server provided by this template.                                        |
-| `mcp-server/server.ts`      | Initializes the server, instantiates `ObsidianRestApiService`, registers tools/resources.  |
-| `mcp-server/tools/`         | Implementations for each Obsidian MCP tool (e.g., `obsidianReadFileTool/`).                |
-| `mcp-server/transports/`    | Handles `stdio` and `http` communication layers, including HTTP authentication middleware. |
-| `services/`                 | Contains service abstractions for external APIs.                                           |
-| `services/obsidianRestAPI/` | Typed client for the Obsidian Local REST API (Service, Methods, Types).                    |
-| `types-global/`             | Shared TypeScript definitions (Errors, MCP types).                                         |
-| `utils/`                    | Reusable utilities (logging, errors, security, parsing, etc.). Exported via `index.ts`.    |
-| `scripts/`                  | Utility scripts for development (clean, build steps, tree generation, spec fetching).      |
-| `docs/`                     | Documentation files, including generated file tree and fetched API specs.                  |
+| Directory                   | Description                                                                                              |
+| :-------------------------- | :------------------------------------------------------------------------------------------------------- |
+| `config/`                   | Loads environment variables (`.env`), package info, and Obsidian API settings.                           |
+| `mcp-server/`               | Logic for the MCP server provided by this template.                                                      |
+| `mcp-server/server.ts`      | Initializes the server, instantiates `ObsidianRestApiService`, registers tools/resources.                |
+| `mcp-server/tools/`         | Implementations for each Obsidian MCP tool (e.g., `obsidianReadFileTool/`, `obsidianGlobalSearchTool/`). |
+| `mcp-server/transports/`    | Handles `stdio` and `http` communication layers, including HTTP authentication middleware.               |
+| `services/`                 | Contains service abstractions for external APIs or internal caching.                                     |
+| `services/obsidianRestAPI/` | Typed client for the Obsidian Local REST API (Service, Methods, Types).                                  |
+| `services/vaultCache/`      | Service for caching vault structure/metadata (optional, background-built).                               |
+| `types-global/`             | Shared TypeScript definitions (Errors, MCP types).                                                       |
+| `utils/`                    | Reusable utilities (logging, errors, security, parsing, etc.). Exported via `index.ts`.                  |
+| `scripts/`                  | Utility scripts for development (clean, build steps, tree generation, spec fetching).                    |
+| `docs/`                     | Documentation files, including generated file tree and fetched API specs.                                |
 
 **Explore the structure yourself:**
 
