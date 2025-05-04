@@ -1,119 +1,200 @@
-import path from 'node:path'; // For file path fallback logic
+import path from 'node:path'; // For file path fallback logic using POSIX separators
 import { z } from 'zod';
-import { ObsidianRestApiService, NoteJson, NoteStat } from '../../../services/obsidianRestAPI/index.js'; // Added NoteStat
+import { NoteJson, ObsidianRestApiService } from '../../../services/obsidianRestAPI/index.js';
 import { BaseErrorCode, McpError } from '../../../types-global/errors.js';
-import { logger, RequestContext, createFormattedStatWithTokenCount } from '../../../utils/index.js'; // Use new utility name
+import { createFormattedStatWithTokenCount, logger, RequestContext } from '../../../utils/index.js';
 
-// --- Schema Definitions ---
+// ====================================================================================
+// Schema Definitions for Input Validation
+// ====================================================================================
 
-const TargetTypeSchema = z.enum(['filePath', 'activeFile', 'periodicNote']);
-const PeriodicNotePeriodSchema = z.enum(['daily', 'weekly', 'monthly', 'quarterly', 'yearly']);
+/** Defines the possible types of targets for the search/replace operation. */
+const TargetTypeSchema = z.enum(['filePath', 'activeFile', 'periodicNote'])
+  .describe("Specifies the target note: 'filePath', 'activeFile', or 'periodicNote'.");
 
+/** Defines the valid periods for periodic notes. */
+const PeriodicNotePeriodSchema = z.enum(['daily', 'weekly', 'monthly', 'quarterly', 'yearly'])
+  .describe("Valid periods for 'periodicNote' target type.");
+
+/**
+ * Defines the structure for a single search and replace operation block.
+ */
 const ReplacementBlockSchema = z.object({
-  /** The exact string or regex pattern to search for. */
-  search: z.string().min(1, "Search pattern cannot be empty."),
-  /** The string to replace matches with. */
-  replace: z.string(), // Allow empty string for deletion
+  /** The exact string or regex pattern to search for within the note content. Cannot be empty. */
+  search: z.string().min(1, "Search pattern cannot be empty.")
+    .describe("The exact string or regex pattern to search for."),
+  /** The string to replace each match with. An empty string effectively deletes the matched text. */
+  replace: z.string()
+    .describe("The string to replace matches with."),
 });
 
-// Define the base schema object first
+/**
+ * Base Zod schema object containing fields common to the search/replace tool input.
+ * This is used as the foundation for both the registration shape and the refined internal schema.
+ */
 const BaseObsidianSearchReplaceInputSchema = z.object({
   /** Specifies the target note: 'filePath', 'activeFile', or 'periodicNote'. */
-  targetType: TargetTypeSchema.describe("Specifies the target note: 'filePath', 'activeFile', or 'periodicNote'."),
-  /** Required if targetType is 'filePath' (vault-relative path) or 'periodicNote' (period string: 'daily', etc.). Tries case-insensitive fallback for filePath. */
-  targetIdentifier: z.string().optional().describe(
-    "Required if targetType is 'filePath' (vault-relative path) or 'periodicNote' (period string: 'daily', etc.). Tries case-insensitive fallback for filePath."
-  ),
-  /** An array of search/replace operations to perform sequentially. */
-  replacements: z.array(ReplacementBlockSchema).min(1, "Replacements array cannot be empty.").describe(
-    "An array of search/replace operations to perform sequentially."
-  ),
-  /** If true, treat the 'search' field in replacements as JavaScript regex patterns. Defaults to false (exact string matching). */
-  useRegex: z.boolean().optional().default(false).describe(
-    "If true, treat the 'search' field in replacements as JavaScript regex patterns. Defaults to false (exact string matching)."
-  ),
-  /** If true (default), replace all occurrences for each search pattern. If false, replace only the first occurrence. */
-  replaceAll: z.boolean().optional().default(true).describe(
-    "If true (default), replace all occurrences for each search pattern. If false, replace only the first occurrence."
-  ),
-  /** If true (default), the search is case-sensitive. If false, it's case-insensitive. Applies to both string and regex search. */
-  caseSensitive: z.boolean().optional().default(true).describe(
-    "If true (default), the search is case-sensitive. If false, it's case-insensitive. Applies to both string and regex search."
-  ),
-  /** If true, treats sequences of whitespace in the search string (when useRegex=false) as matching one or more whitespace characters (\s+). Defaults to false. */
-  flexibleWhitespace: z.boolean().optional().default(false).describe(
-    "If true, treats sequences of whitespace in the search string (when useRegex=false) as matching one or more whitespace characters (\\s+). Defaults to false."
-  ),
-  /** If true, ensures the search term matches only whole words using word boundaries (\b). Applies to both regex and non-regex modes. Defaults to false. */
-  wholeWord: z.boolean().optional().default(false).describe(
-    "If true, ensures the search term matches only whole words using word boundaries (\\b). Applies to both regex and non-regex modes. Defaults to false."
-  ),
-  /** If true, returns the final content of the file in the response. Defaults to false. */
-  returnContent: z.boolean().optional().default(false).describe(
-    "If true, returns the final content of the file in the response. Defaults to false."
-  ),
+  targetType: TargetTypeSchema,
+  /**
+   * Identifier for the target. Required and must be a vault-relative path if targetType is 'filePath'.
+   * Required and must be a valid period string (e.g., 'daily') if targetType is 'periodicNote'.
+   * Not used if targetType is 'activeFile'. The tool attempts a case-insensitive fallback if the exact filePath is not found.
+   */
+  targetIdentifier: z.string().optional()
+    .describe("Required if targetType is 'filePath' (vault-relative path) or 'periodicNote' (period string: 'daily', etc.). Tries case-insensitive fallback for filePath."),
+  /** An array of one or more search/replace operations to perform sequentially on the note content. */
+  replacements: z.array(ReplacementBlockSchema).min(1, "Replacements array cannot be empty.")
+    .describe("An array of search/replace operations to perform sequentially."),
+  /** If true, treats the 'search' field in each replacement block as a JavaScript regular expression pattern. Defaults to false (exact string matching). */
+  useRegex: z.boolean().optional().default(false)
+    .describe("If true, treat the 'search' field in replacements as JavaScript regex patterns. Defaults to false (exact string matching)."),
+  /** If true (default), replaces all occurrences matching each search pattern within the note. If false, replaces only the first occurrence of each pattern. */
+  replaceAll: z.boolean().optional().default(true)
+    .describe("If true (default), replace all occurrences for each search pattern. If false, replace only the first occurrence."),
+  /** If true (default), the search operation is case-sensitive. If false, it's case-insensitive. Applies to both string and regex searches. */
+  caseSensitive: z.boolean().optional().default(true)
+    .describe("If true (default), the search is case-sensitive. If false, it's case-insensitive. Applies to both string and regex search."),
+  /** If true (and useRegex is false), treats sequences of whitespace in the search string as matching one or more whitespace characters (\s+). Defaults to false. Cannot be true if useRegex is true. */
+  flexibleWhitespace: z.boolean().optional().default(false)
+    .describe("If true (and useRegex=false), treats sequences of whitespace in the search string as matching one or more whitespace characters (\\s+). Defaults to false."),
+  /** If true, ensures the search term matches only whole words by implicitly adding word boundaries (\b) around the pattern (unless boundaries already exist in regex). Applies to both regex and non-regex modes. Defaults to false. */
+  wholeWord: z.boolean().optional().default(false)
+    .describe("If true, ensures the search term matches only whole words using word boundaries (\\b). Applies to both regex and non-regex modes. Defaults to false."),
+  /** If true, includes the final content of the modified file in the response. Defaults to false. */
+  returnContent: z.boolean().optional().default(false)
+    .describe("If true, returns the final content of the file in the response. Defaults to false."),
 });
 
+// ====================================================================================
+// Refined Schema for Internal Logic and Strict Validation
+// ====================================================================================
 
-// Now, define the refined schema using the base schema
+/**
+ * Refined Zod schema used internally within the tool's logic for strict validation.
+ * It builds upon `BaseObsidianSearchReplaceInputSchema` and adds cross-field validation rules:
+ * 1. Ensures `targetIdentifier` is provided and valid when required by `targetType`.
+ * 2. Ensures `flexibleWhitespace` is not used concurrently with `useRegex`.
+ */
 export const ObsidianSearchReplaceInputSchema = BaseObsidianSearchReplaceInputSchema.refine(data => {
-    // Validate targetIdentifier based on targetType
+    // Rule 1: Validate targetIdentifier based on targetType
     if ((data.targetType === 'filePath' || data.targetType === 'periodicNote') && !data.targetIdentifier) {
-      return false;
+      return false; // Missing targetIdentifier
     }
     if (data.targetType === 'periodicNote' && data.targetIdentifier && !PeriodicNotePeriodSchema.safeParse(data.targetIdentifier).success) {
-        return false;
+        return false; // Invalid period
     }
-    // Add validation: flexibleWhitespace only applies when useRegex is false
+    // Rule 2: flexibleWhitespace cannot be true if useRegex is true
     if (data.flexibleWhitespace && data.useRegex) {
-        return false;
+        return false; // Conflicting options
     }
-    return true;
+    return true; // All checks passed
   }, {
-    message: "targetIdentifier is required and must be a valid path for targetType 'filePath', or a valid period ('daily', 'weekly', etc.) for targetType 'periodicNote'. flexibleWhitespace cannot be true if useRegex is true.",
-    path: ["targetIdentifier", "flexibleWhitespace"], // Point error to relevant fields
+    // Custom error message for refinement failures
+    message: "Validation failed: targetIdentifier is required and must be valid for 'filePath' or 'periodicNote'. Also, 'flexibleWhitespace' cannot be true if 'useRegex' is true.",
+    // Point error reporting to potentially problematic fields
+    path: ["targetIdentifier", "flexibleWhitespace", "useRegex"],
   }).describe(
     "Performs one or more search-and-replace operations within a target Obsidian note (file path, active, or periodic). Reads the file, applies replacements sequentially in memory, and writes the modified content back, overwriting the original. Supports string/regex search, case sensitivity toggle, replacing first/all occurrences, flexible whitespace matching (non-regex), and whole word matching."
   );
 
-// Export the shape of the base schema for registration
+// ====================================================================================
+// Schema Shape and Type Exports for Registration and Logic
+// ====================================================================================
+
+/**
+ * The shape of the base input schema, used by `server.tool` for registration and initial validation.
+ * @see BaseObsidianSearchReplaceInputSchema
+ */
 export const ObsidianSearchReplaceInputSchemaShape = BaseObsidianSearchReplaceInputSchema.shape;
-// Export the inferred type from the base schema for the handler signature
+
+/**
+ * TypeScript type inferred from the base registration schema. Represents the raw input
+ * received by the tool handler *before* refinement.
+ * @see BaseObsidianSearchReplaceInputSchema
+ */
 export type ObsidianSearchReplaceRegistrationInput = z.infer<typeof BaseObsidianSearchReplaceInputSchema>;
 
-// Type derived from the *refined* schema for internal logic
+/**
+ * TypeScript type inferred from the *refined* input schema (`ObsidianSearchReplaceInputSchema`).
+ * This type represents the validated and structured input used within the core processing logic.
+ */
 export type ObsidianSearchReplaceInput = z.infer<typeof ObsidianSearchReplaceInputSchema>;
 
-// --- Response Type ---
-// Define the *new* Stat type containing formatted timestamps and token count
-type FormattedStat = { createdTime: string; modifiedTime: string; tokenCountEstimate: number }; // Updated fields
+// ====================================================================================
+// Response Type Definition
+// ====================================================================================
 
+/**
+ * Represents the structure of file statistics after formatting, including
+ * human-readable timestamps and an estimated token count.
+ */
+type FormattedStat = {
+  /** Creation time formatted as a standard date-time string. */
+  createdTime: string;
+  /** Last modified time formatted as a standard date-time string. */
+  modifiedTime: string;
+  /** Estimated token count of the file content (using tiktoken 'gpt-4o'). */
+  tokenCountEstimate: number;
+};
+
+/**
+ * Defines the structure of the successful response returned by the `processObsidianSearchReplace` function.
+ * This object is typically serialized to JSON and sent back to the client.
+ */
 export interface ObsidianSearchReplaceResponse {
+  /** Indicates whether the operation was successful. */
   success: boolean;
+  /** A human-readable message describing the outcome of the operation (e.g., number of replacements). */
   message: string;
-  totalReplacementsMade: number; // Count total replacements across all blocks
-  // timestamp: string; // REMOVED
-  stat?: FormattedStat; // Use the updated formatted stat type
-  finalContent?: string; // Added optional final content
+  /** The total number of replacements made across all search/replace blocks. */
+  totalReplacementsMade: number;
+  /** Optional file statistics (creation/modification times, token count) if the file could be read after the update. */
+  stats?: FormattedStat;
+  /** Optional final content of the file, included only if `returnContent` was true in the request. */
+  finalContent?: string;
+ }
+
+// ====================================================================================
+// Helper Functions
+// ====================================================================================
+
+/**
+ * Escapes characters that have special meaning in regular expressions.
+ * This allows treating a literal string as a pattern in a regex.
+ *
+ * @param {string} str - The input string to escape.
+ * @returns {string} The string with regex special characters escaped.
+ */
+function escapeRegex(str: string): string {
+  // Escape characters: . * + ? ^ $ { } ( ) | [ ] \ -
+  return str.replace(/[.*+?^${}()|[\]\\-]/g, '\\$&'); // $& inserts the matched character
 }
 
-// Helper function to escape regex special characters
-function escapeRegex(string: string): string {
-  // Escape characters with special meaning in regex.
-  // Added escaping for hyphen (-) as well.
-  return string.replace(/[.*+?^${}()|[\]\\-]/g, '\\$&'); // $& means the whole matched string
-}
-
-// --- Helper Function to Get Final State (Similar to updateFile) ---
+/**
+ * Attempts to retrieve the final state (content and stats) of the target note after a search/replace operation.
+ * Uses the appropriate Obsidian API method based on the target type and the potentially corrected file path.
+ * Logs a warning and returns null if fetching the final state fails, preventing failure of the entire operation.
+ *
+ * @param {z.infer<typeof TargetTypeSchema>} targetType - The type of the target note.
+ * @param {string | undefined} effectiveFilePath - The vault-relative path (potentially corrected by case-insensitive fallback). Undefined for non-filePath targets.
+ * @param {z.infer<typeof PeriodicNotePeriodSchema> | undefined} period - The parsed period if targetType is 'periodicNote'.
+ * @param {ObsidianRestApiService} obsidianService - The Obsidian API service instance.
+ * @param {RequestContext} context - The request context for logging and correlation.
+ * @returns {Promise<NoteJson | null>} A promise resolving to the NoteJson object or null if retrieval fails.
+ */
 async function getFinalState(
     targetType: z.infer<typeof TargetTypeSchema>,
-    effectiveFilePath: string | undefined, // Use the potentially corrected path
+    effectiveFilePath: string | undefined,
     period: z.infer<typeof PeriodicNotePeriodSchema> | undefined,
     obsidianService: ObsidianRestApiService,
     context: RequestContext
 ): Promise<NoteJson | null> {
+    const operation = 'getFinalStateAfterSearchReplace';
+    const targetDesc = effectiveFilePath ?? (period ? `periodic ${period}` : 'active file');
+    logger.debug(`Attempting to retrieve final state for target: ${targetDesc}`, { ...context, operation });
     try {
         let noteJson: NoteJson | null = null;
+        // Call the appropriate API method
         if (targetType === 'filePath' && effectiveFilePath) {
             noteJson = await obsidianService.getFileContent(effectiveFilePath, 'json', context) as NoteJson;
         } else if (targetType === 'activeFile') {
@@ -121,275 +202,343 @@ async function getFinalState(
         } else if (targetType === 'periodicNote' && period) {
             noteJson = await obsidianService.getPeriodicNote(period, 'json', context) as NoteJson;
         }
+        logger.debug(`Successfully retrieved final state for ${targetDesc}`, { ...context, operation });
         return noteJson;
     } catch (error) {
-        // Log warning but don't pass the error object directly to logger.warning
+        // Log the error but return null to avoid failing the main operation.
         const errorMsg = error instanceof Error ? error.message : String(error);
-        logger.warning(`Could not retrieve final state after search/replace. Error: ${errorMsg}`, context);
+        logger.warning(`Could not retrieve final state after search/replace for target: ${targetDesc}. Error: ${errorMsg}`, { ...context, operation, error: errorMsg });
         return null;
     }
 }
 
-// --- Helper Function to Format Timestamp ---
-// REMOVED - Now using shared utility
-
-
-// --- Core Logic Function ---
+// ====================================================================================
+// Core Logic Function
+// ====================================================================================
 
 /**
- * Processes search and replace operations within an Obsidian note.
+ * Processes the core logic for the 'obsidian_search_replace' tool.
+ * Reads the target note content, performs a sequence of search and replace operations
+ * based on the provided parameters (handling regex, case sensitivity, etc.),
+ * writes the modified content back to Obsidian, retrieves the final state,
+ * and constructs the response object.
+ *
+ * @param {ObsidianSearchReplaceInput} params - The validated input parameters conforming to the refined schema.
+ * @param {RequestContext} context - The request context for logging and correlation.
+ * @param {ObsidianRestApiService} obsidianService - The instance of the Obsidian REST API service.
+ * @returns {Promise<ObsidianSearchReplaceResponse>} A promise resolving to the structured success response.
+ * @throws {McpError} Throws an McpError if validation fails, reading/writing fails, or an unexpected error occurs during processing.
  */
 export const processObsidianSearchReplace = async (
-  params: ObsidianSearchReplaceInput,
+  params: ObsidianSearchReplaceInput, // Use the refined, validated type
   context: RequestContext,
   obsidianService: ObsidianRestApiService
 ): Promise<ObsidianSearchReplaceResponse> => {
-  // Destructure all params including new ones
+  // Destructure validated parameters for easier access
   const {
       targetType,
       targetIdentifier,
       replacements,
-      useRegex: initialUseRegex, // Rename to avoid conflict inside loop
+      useRegex: initialUseRegex, // Rename to avoid shadowing loop variable
       replaceAll,
       caseSensitive,
-      flexibleWhitespace,
+      flexibleWhitespace, // Note: Cannot be true if initialUseRegex is true (enforced by schema)
       wholeWord,
-      returnContent // Added returnContent
+      returnContent
   } = params;
-  let effectiveFilePath = targetIdentifier; // Used for filePath targets, potentially updated by fallback
-  let targetDescription = targetIdentifier ?? 'active file'; // For logging/errors
+
+  let effectiveFilePath = targetIdentifier; // Store the path used (might be updated by fallback)
+  let targetDescription = targetIdentifier ?? 'active file'; // For logging and error messages
   let targetPeriod: z.infer<typeof PeriodicNotePeriodSchema> | undefined;
 
   logger.debug(`Processing obsidian_search_replace request`, { ...context, targetType, targetIdentifier, initialUseRegex, flexibleWhitespace, wholeWord, returnContent });
 
-  // --- 1. Read File Content (with filePath fallback) ---
+  // --- Step 1: Read Initial Content (with case-insensitive fallback for filePath) ---
   let originalContent: string;
+  const readContext = { ...context, operation: 'readFileContent' };
   try {
     if (targetType === 'filePath') {
-      if (!targetIdentifier) throw new McpError(BaseErrorCode.VALIDATION_ERROR, "targetIdentifier is required for targetType 'filePath'.", context);
-      targetDescription = targetIdentifier;
+      if (!targetIdentifier) { // Should be caught by schema, but double-check
+          throw new McpError(BaseErrorCode.VALIDATION_ERROR, "targetIdentifier is required for targetType 'filePath'.", readContext);
+      }
+      targetDescription = targetIdentifier; // Initial description
       try {
-        // Attempt case-sensitive read first
-        logger.debug(`Attempting to read file (case-sensitive): ${targetIdentifier}`, context);
-        originalContent = await obsidianService.getFileContent(targetIdentifier, 'markdown', context) as string;
+        // Attempt 1: Case-sensitive read
+        logger.debug(`Attempting to read file (case-sensitive): ${targetIdentifier}`, readContext);
+        originalContent = await obsidianService.getFileContent(targetIdentifier, 'markdown', readContext) as string;
         effectiveFilePath = targetIdentifier; // Confirm exact path worked
+        logger.debug(`Successfully read file using exact path: ${targetIdentifier}`, readContext);
       } catch (readError) {
+        // Attempt 2: Case-insensitive fallback if NOT_FOUND
         if (readError instanceof McpError && readError.code === BaseErrorCode.NOT_FOUND) {
-          // Attempt case-insensitive fallback
-          logger.info(`File not found with exact path: ${targetIdentifier}. Attempting case-insensitive fallback.`, context);
+          logger.info(`File not found with exact path: ${targetIdentifier}. Attempting case-insensitive fallback.`, readContext);
           const dirname = path.posix.dirname(targetIdentifier);
           const filenameLower = path.posix.basename(targetIdentifier).toLowerCase();
-          const dirToList = dirname === '.' ? '/' : dirname; // Use root if dirname is '.'
-          const filesInDir = await obsidianService.listFiles(dirToList, context);
+          // List directory contents (use root '/' if dirname is '.')
+          const dirToList = dirname === '.' ? '/' : dirname;
+          const filesInDir = await obsidianService.listFiles(dirToList, readContext);
+          // Filter for files matching the lowercase basename
           const matches = filesInDir.filter(f => !f.endsWith('/') && path.posix.basename(f).toLowerCase() === filenameLower);
 
           if (matches.length === 1) {
+            // Found exactly one match
             const correctFilename = path.posix.basename(matches[0]);
-            effectiveFilePath = path.posix.join(dirname, correctFilename); // Update effective path
-            targetDescription = effectiveFilePath; // Update description for logs
-            logger.info(`Found case-insensitive match: ${effectiveFilePath}. Reading content.`, context);
-            originalContent = await obsidianService.getFileContent(effectiveFilePath, 'markdown', context) as string;
+            effectiveFilePath = path.posix.join(dirname, correctFilename); // Construct the correct path
+            targetDescription = effectiveFilePath; // Update description for subsequent logs/errors
+            logger.info(`Found case-insensitive match: ${effectiveFilePath}. Reading content.`, readContext);
+            originalContent = await obsidianService.getFileContent(effectiveFilePath, 'markdown', readContext) as string;
+            logger.debug(`Successfully read file using fallback path: ${effectiveFilePath}`, readContext);
           } else {
+            // Handle ambiguous (multiple matches) or no match found
             const errorMsg = matches.length > 1
-              ? `Read failed: Ambiguous case-insensitive matches for '${targetIdentifier}'.`
-              : `Read failed: File not found for '${targetIdentifier}' (case-insensitive fallback also failed).`;
-            logger.error(errorMsg, { ...context, matches });
-            throw new McpError(BaseErrorCode.NOT_FOUND, errorMsg, context);
+              ? `Read failed: Ambiguous case-insensitive matches found for '${targetIdentifier}' in directory '${dirToList}'. Matches: [${matches.join(', ')}]`
+              : `Read failed: File not found for '${targetIdentifier}' (case-insensitive fallback also failed in directory '${dirToList}').`;
+            logger.error(errorMsg, { ...readContext, matches });
+            // Use NOT_FOUND for no match, CONFLICT for ambiguity
+            throw new McpError(matches.length > 1 ? BaseErrorCode.CONFLICT : BaseErrorCode.NOT_FOUND, errorMsg, readContext);
           }
         } else {
-          throw readError; // Re-throw other read errors
+          // Re-throw errors other than NOT_FOUND during the initial read attempt
+          throw readError;
         }
       }
     } else if (targetType === 'activeFile') {
-      originalContent = await obsidianService.getActiveFile('markdown', context) as string;
+      logger.debug(`Reading content from active file.`, readContext);
+      originalContent = await obsidianService.getActiveFile('markdown', readContext) as string;
+      targetDescription = 'the active file';
+      effectiveFilePath = undefined; // Not applicable
+      logger.debug(`Successfully read active file content.`, readContext);
     } else { // periodicNote
-      if (!targetIdentifier) throw new McpError(BaseErrorCode.VALIDATION_ERROR, "targetIdentifier is required for targetType 'periodicNote'.", context);
-      targetPeriod = PeriodicNotePeriodSchema.parse(targetIdentifier); // Already validated by refine
-      targetDescription = `periodic note ${targetPeriod}`;
-      originalContent = await obsidianService.getPeriodicNote(targetPeriod, 'markdown', context) as string;
+      if (!targetIdentifier) { // Should be caught by schema
+          throw new McpError(BaseErrorCode.VALIDATION_ERROR, "targetIdentifier is required for targetType 'periodicNote'.", readContext);
+      }
+      // Parse period (already validated by refined schema)
+      targetPeriod = PeriodicNotePeriodSchema.parse(targetIdentifier);
+      targetDescription = `periodic note '${targetPeriod}'`;
+      effectiveFilePath = undefined; // Not applicable
+      logger.debug(`Reading content from ${targetDescription}.`, readContext);
+      originalContent = await obsidianService.getPeriodicNote(targetPeriod, 'markdown', readContext) as string;
+      logger.debug(`Successfully read ${targetDescription} content.`, readContext);
     }
   } catch (error) {
-     // Handle errors during the initial read phase
-     if (error instanceof McpError) throw error;
+     // Catch and handle errors during the initial read phase
+     if (error instanceof McpError) throw error; // Re-throw known McpErrors
      const errorMessage = `Unexpected error reading target ${targetDescription} before search/replace.`;
-     logger.error(errorMessage, error instanceof Error ? error : undefined, context);
-     throw new McpError(BaseErrorCode.INTERNAL_ERROR, errorMessage, context);
+     logger.error(errorMessage, error instanceof Error ? error : undefined, readContext);
+     throw new McpError(BaseErrorCode.INTERNAL_ERROR, `${errorMessage}: ${error instanceof Error ? error.message : String(error)}`, readContext);
   }
 
-  // --- 2. Perform Replacements ---
+  // --- Step 2: Perform Sequential Replacements ---
   let modifiedContent = originalContent;
   let totalReplacementsMade = 0;
+  const replaceContext = { ...context, operation: 'performReplacements' };
 
-  for (const rep of replacements) {
-    let currentReplacements = 0;
-    let finalSearchPattern: string | RegExp = rep.search;
-    let useRegexForThisRep = initialUseRegex; // Start with the initial setting
+  logger.debug(`Starting ${replacements.length} replacement operations.`, replaceContext);
+
+  for (let i = 0; i < replacements.length; i++) {
+    const rep = replacements[i];
+    const repContext = { ...replaceContext, replacementIndex: i, searchPattern: rep.search };
+    let currentReplacementsInBlock = 0;
+    let finalSearchPattern: string | RegExp = rep.search; // Start with the raw search string
+    let useRegexForThisRep = initialUseRegex; // Use the overall setting initially
 
     try {
-      // --- Prepare Search Pattern ---
+      // --- 2a: Prepare the Search Pattern (Apply options) ---
+      const patternPrepContext = { ...repContext, subOperation: 'prepareSearchPattern' };
       if (!initialUseRegex) {
-        // Handle non-regex options: flexibleWhitespace and wholeWord
-        let searchStr = rep.search;
+        // Handle non-regex specific options: flexibleWhitespace and wholeWord
+        let searchStr = rep.search; // Work with a mutable string
         if (flexibleWhitespace) {
-          // Convert to regex: escape special chars, replace whitespace sequences with \s+
+          // Convert to a regex string: escape special chars, then replace whitespace sequences with \s+
           searchStr = escapeRegex(searchStr).replace(/\s+/g, '\\s+');
-          useRegexForThisRep = true; // Treat as regex now
-          logger.debug(`Applying flexibleWhitespace: "${rep.search}" -> /${searchStr}/`, context);
+          useRegexForThisRep = true; // Now treat it as a regex pattern string
+          logger.debug(`Applying flexibleWhitespace: "${rep.search}" -> /${searchStr}/`, patternPrepContext);
         }
         if (wholeWord) {
-          // Add word boundaries (\b)
-          // If flexibleWhitespace was also true, searchStr is already a regex string
-          // Otherwise, escape the original string first
-          const baseStr = useRegexForThisRep ? searchStr : escapeRegex(searchStr);
-          searchStr = `\\b${baseStr}\\b`;
-          useRegexForThisRep = true; // Definitely treat as regex now
-          logger.debug(`Applying wholeWord: "${rep.search}" -> /${searchStr}/`, context);
+          // Add word boundaries (\b) to the pattern string
+          // If flexibleWhitespace was applied, searchStr is already a regex string.
+          // Otherwise, escape the original search string first.
+          const basePattern = useRegexForThisRep ? searchStr : escapeRegex(searchStr);
+          searchStr = `\\b${basePattern}\\b`;
+          useRegexForThisRep = true; // Definitely treat as a regex pattern string now
+          logger.debug(`Applying wholeWord: "${rep.search}" -> /${searchStr}/`, patternPrepContext);
         }
         finalSearchPattern = searchStr; // Update the pattern to use
 
       } else if (wholeWord) {
-        // Initial useRegex is true, apply wholeWord if boundaries aren't obvious
+        // Initial useRegex is true, but wholeWord is also requested.
+        // Apply wholeWord boundaries if the user's regex doesn't obviously have them.
         let searchStr = rep.search;
-        // Check if the pattern already starts/ends with word boundary, ^, or $
+        // Heuristic check: Does the pattern likely already account for boundaries?
+        // Looks for ^, $, \b at start/end, or patterns matching full lines/non-whitespace sequences.
         const hasBoundary = /(?:^|\\b)\S.*\S(?:$|\\b)|^\S$|^\S.*\S$|^$/.test(searchStr) || /^\^|\\b/.test(searchStr) || /\$|\\b$/.test(searchStr);
         if (!hasBoundary) {
             searchStr = `\\b${searchStr}\\b`;
-            // Use logger.warning for potential issues
-            logger.warning(`Applying wholeWord=true to user-provided regex. Original: /${rep.search}/, Modified: /${searchStr}/. This might affect complex regexes.`, context);
-            finalSearchPattern = searchStr; // Update the pattern
+            // Log a warning as this might interfere with complex user regex.
+            logger.warning(`Applying wholeWord=true to user-provided regex. Original: /${rep.search}/, Modified: /${searchStr}/. This might affect complex regex behavior.`, patternPrepContext);
+            finalSearchPattern = searchStr; // Update the pattern string
         } else {
-             logger.debug(`wholeWord=true but user regex already contains boundary-like anchors: /${searchStr}/`, context);
+             logger.debug(`wholeWord=true requested, but user regex /${searchStr}/ appears to already contain boundary anchors. Using original regex.`, patternPrepContext);
+             finalSearchPattern = rep.search; // Keep original regex string
         }
       }
+      // If it's still not treated as regex, finalSearchPattern remains the original rep.search string.
 
-      // --- Execute Replacement ---
+      // --- 2b: Execute the Replacement ---
+      const execContext = { ...repContext, subOperation: 'executeReplacement', isRegex: useRegexForThisRep };
       if (useRegexForThisRep) {
-        // Build regex flags
+        // --- Regex Replacement ---
         let flags = '';
-        if (replaceAll) flags += 'g';
-        if (!caseSensitive) flags += 'i';
-        const regex = new RegExp(finalSearchPattern as string, flags); // Cast as string, it was prepared above
-        // Count matches before replacing
+        if (replaceAll) flags += 'g'; // Global flag for all matches
+        if (!caseSensitive) flags += 'i'; // Ignore case flag
+        const regex = new RegExp(finalSearchPattern as string, flags); // Create RegExp object
+        logger.debug(`Executing regex replacement: /${finalSearchPattern}/${flags}`, execContext);
+
+        // Count matches *before* replacing to report accurately
         const matches = modifiedContent.match(regex);
-        currentReplacements = matches ? matches.length : 0;
-        if (!replaceAll && currentReplacements > 1) {
-            currentReplacements = 1; // Only count 1 if replaceAll is false
+        currentReplacementsInBlock = matches ? matches.length : 0;
+        // If replaceAll is false, we only perform/count one replacement, even if regex matches more
+        if (!replaceAll && currentReplacementsInBlock > 0) {
+            currentReplacementsInBlock = 1;
         }
-        // Perform replacement
-        if (currentReplacements > 0) {
+
+        // Perform the replacement
+        if (currentReplacementsInBlock > 0) {
             if (replaceAll) {
                 modifiedContent = modifiedContent.replace(regex, rep.replace);
             } else {
-                // Replace only the first occurrence
+                // Replace only the first occurrence found by the regex
                 modifiedContent = modifiedContent.replace(regex, rep.replace);
             }
         }
       } else {
-        // Simple string replacement (only if no options like wholeWord/flexibleWhitespace were applied)
-        const searchString = caseSensitive ? finalSearchPattern as string : (finalSearchPattern as string).toLowerCase();
+        // --- Simple String Replacement ---
+        // Note: wholeWord and flexibleWhitespace would have set useRegexForThisRep = true
+        const searchString = finalSearchPattern as string; // It's just a string here
+        const comparisonString = caseSensitive ? searchString : searchString.toLowerCase();
         let startIndex = 0;
-        let replacedCount = 0; // Track replacements for this block
+        logger.debug(`Executing string replacement: "${searchString}" (caseSensitive: ${caseSensitive})`, execContext);
 
-        while (true) { // Loop until break
-            const contentForSearch = caseSensitive ? modifiedContent.substring(startIndex) : modifiedContent.substring(startIndex).toLowerCase();
-            const indexInSubstring = contentForSearch.indexOf(searchString);
+        while (true) {
+            const contentToSearch = caseSensitive ? modifiedContent : modifiedContent.toLowerCase();
+            const index = contentToSearch.indexOf(comparisonString, startIndex);
 
-            if (indexInSubstring === -1) {
-                break; // No more matches
+            if (index === -1) {
+                break; // No more occurrences found
             }
 
-            const indexInOriginal = startIndex + indexInSubstring; // Actual index in modifiedContent
+            currentReplacementsInBlock++;
 
-            replacedCount++;
-            currentReplacements++; // Increment total for this block
-
-            // Perform replacement on the original case content
-            modifiedContent = modifiedContent.substring(0, indexInOriginal) +
+            // Perform replacement using original indices and search string length
+            modifiedContent = modifiedContent.substring(0, index) +
                               rep.replace +
-                              modifiedContent.substring(indexInOriginal + rep.search.length); // Use original rep.search.length
+                              modifiedContent.substring(index + searchString.length);
 
             if (!replaceAll) {
-                break; // Stop after first replacement
+                break; // Stop after the first replacement
             }
 
-            // Find next occurrence: Start search immediately after the inserted replacement
-            startIndex = indexInOriginal + rep.replace.length;
+            // Move start index past the inserted replacement to find the next match
+            startIndex = index + rep.replace.length;
 
-            // Prevent infinite loops if search string is empty or replacement contains search string
-             if (rep.search.length === 0 || startIndex > modifiedContent.length) {
-                 // Use logger.warning for potential issues
-                 logger.warning(`Potential infinite loop detected or search index out of bounds during string replacement for "${rep.search}". Breaking loop.`, context);
+            // Safety break for empty search string or potential infinite loops
+             if (searchString.length === 0) {
+                 logger.warning(`Search string is empty. Breaking replacement loop to prevent infinite execution.`, execContext);
+                 break;
+             }
+             // Basic check if replacement could cause infinite loop (e.g., replacing 'a' with 'ba')
+             if (rep.replace.includes(searchString) && rep.replace.length >= searchString.length) {
+                 // This is a heuristic, might not catch all cases but prevents common ones.
+                 logger.warning(`Replacement string "${rep.replace}" contains search string "${searchString}". Potential infinite loop detected. Breaking loop for this block.`, execContext);
                  break;
              }
         }
       }
-      totalReplacementsMade += currentReplacements;
-      logger.debug(`Performed ${currentReplacements} replacements for search: "${rep.search}"`, context);
+      totalReplacementsMade += currentReplacementsInBlock;
+      logger.debug(`Block ${i}: Performed ${currentReplacementsInBlock} replacements for search: "${rep.search}"`, repContext);
+
     } catch (error) {
-        const errorMessage = `Error during replacement for search pattern "${rep.search}"`;
-        logger.error(errorMessage, error instanceof Error ? error : undefined, context);
-        // Decide whether to continue or fail all? For now, fail fast.
-        throw new McpError(BaseErrorCode.INTERNAL_ERROR, `${errorMessage}: ${error instanceof Error ? error.message : 'Unknown error'}`, context);
+        // Catch errors during a specific replacement block
+        const errorMessage = `Error during replacement block ${i} (search: "${rep.search}")`;
+        logger.error(errorMessage, error instanceof Error ? error : undefined, repContext);
+        // Fail fast: Stop processing further replacements if one block fails.
+        throw new McpError(BaseErrorCode.INTERNAL_ERROR, `${errorMessage}: ${error instanceof Error ? error.message : 'Unknown error'}`, repContext);
     }
-  }
+  } // End of replacements loop
 
-  // --- 3. Write Modified Content Back ---
+  logger.debug(`Finished all replacement operations. Total replacements made: ${totalReplacementsMade}`, replaceContext);
+
+  // --- Step 3: Write Modified Content Back to Obsidian ---
   let finalState: NoteJson | null = null;
-  // Only write if content actually changed
+  // Only write back if the content actually changed to avoid unnecessary file operations.
   if (modifiedContent !== originalContent) {
+    const writeContext = { ...context, operation: 'writeFileContent' };
     try {
-      logger.debug(`Writing modified content back to ${targetDescription}`, context);
+      logger.debug(`Content changed. Writing modified content back to ${targetDescription}`, writeContext);
+      // Use the effectiveFilePath determined during the read phase for filePath targets
       if (targetType === 'filePath') {
-        // Use effectiveFilePath which might have been corrected by fallback
-        await obsidianService.updateFileContent(effectiveFilePath!, modifiedContent, context);
+        await obsidianService.updateFileContent(effectiveFilePath!, modifiedContent, writeContext);
       } else if (targetType === 'activeFile') {
-        await obsidianService.updateActiveFile(modifiedContent, context);
+        await obsidianService.updateActiveFile(modifiedContent, writeContext);
       } else { // periodicNote
-        await obsidianService.updatePeriodicNote(targetPeriod!, modifiedContent, context);
+        await obsidianService.updatePeriodicNote(targetPeriod!, modifiedContent, writeContext);
       }
-      logger.info(`Successfully updated ${targetDescription} with ${totalReplacementsMade} replacements.`, context);
+      logger.info(`Successfully updated ${targetDescription} with ${totalReplacementsMade} replacement(s).`, writeContext);
 
-      // Get final state AFTER writing
+      // Attempt to get the final state *after* successfully writing.
       finalState = await getFinalState(targetType, effectiveFilePath, targetPeriod, obsidianService, context);
 
     } catch (error) {
        // Handle errors during the write phase
-       if (error instanceof McpError) throw error;
+       if (error instanceof McpError) throw error; // Re-throw known McpErrors
        const errorMessage = `Unexpected error writing modified content to ${targetDescription}.`;
-       logger.error(errorMessage, error instanceof Error ? error : undefined, context);
-       throw new McpError(BaseErrorCode.INTERNAL_ERROR, errorMessage, context);
+       logger.error(errorMessage, error instanceof Error ? error : undefined, writeContext);
+       throw new McpError(BaseErrorCode.INTERNAL_ERROR, `${errorMessage}: ${error instanceof Error ? error.message : String(error)}`, writeContext);
     }
   } else {
-      logger.info(`No changes made to ${targetDescription} after search/replace operations.`, context);
-      // Get state even if no changes were made, as mtime might not change but we still want timestamp/size
+      // Content did not change, no need to write.
+      logger.info(`No changes detected in ${targetDescription} after search/replace operations. Skipping write.`, context);
+      // Still attempt to get the state, as the user might want stats even if content is unchanged.
       finalState = await getFinalState(targetType, effectiveFilePath, targetPeriod, obsidianService, context);
   }
 
-  // const timestamp = formatTimestamp(new Date()); // REMOVED
-  const message = totalReplacementsMade > 0
+  // --- Step 4: Construct and Return the Response ---
+  const responseContext = { ...context, operation: 'buildResponse' };
+  let message = totalReplacementsMade > 0 // Use let for potential modification
       ? `Search/replace completed on ${targetDescription}. ${totalReplacementsMade} replacement(s) made.`
-      : `Search/replace completed on ${targetDescription}. No replacements made.`;
+      : `Search/replace completed on ${targetDescription}. No replacements were made.`;
 
-  // --- Build Response ---
-  // Create the formatted stat object using the new utility, passing content, handle potential null return
-  const finalContentForStat = finalState?.content ?? modifiedContent; // Use final state content if available, else modified content
+  // Append a warning if the final state couldn't be retrieved
+  if (finalState === null) {
+      const warningMsg = " (Warning: Could not retrieve final file stats/content after update.)";
+      message += warningMsg;
+      logger.warning(`Appending warning to response message: ${warningMsg}`, responseContext);
+  }
+
+  // Format the file statistics using the shared utility.
+  // Use final state content if available, otherwise use the (potentially modified) content in memory for token count.
+  const finalContentForStat = finalState?.content ?? modifiedContent;
   const formattedStatResult = finalState?.stat
-      ? await createFormattedStatWithTokenCount(finalState.stat, finalContentForStat, context) // Pass content, await
+      ? await createFormattedStatWithTokenCount(finalState.stat, finalContentForStat, responseContext) // Await the async utility
       : undefined;
-  const formattedStat = formattedStatResult === null ? undefined : formattedStatResult; // Convert null to undefined
+  // Ensure stat is undefined if the utility returned null (e.g., token counting failed)
+  const formattedStat = formattedStatResult === null ? undefined : formattedStatResult;
 
+  // Build the final response object
   const response: ObsidianSearchReplaceResponse = {
     success: true,
     message: message,
     totalReplacementsMade,
-    // timestamp: timestamp, // REMOVED
-    stat: formattedStat, // Use the new formatted stat object
+    stats: formattedStat,
   };
 
+  // Include final content if requested and available.
   if (returnContent) {
-      // Use the content from the final state if available, otherwise fallback to modifiedContent
+      // Prefer content from final state read, fallback to in-memory modified content.
       response.finalContent = finalState?.content ?? modifiedContent;
+      logger.debug(`Including final content in response as requested.`, responseContext);
   }
 
+  logger.debug(`Search/replace process completed successfully.`, responseContext);
   return response;
 };
