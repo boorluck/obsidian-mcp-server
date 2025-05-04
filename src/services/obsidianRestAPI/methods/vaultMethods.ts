@@ -16,6 +16,35 @@ type RequestFunction = <T = any>(
 ) => Promise<T>;
 
 /**
+ * Encodes a vault-relative file path correctly for API URLs.
+ * Ensures path separators '/' are not encoded, but individual components are.
+ * Handles leading slashes correctly.
+ *
+ * @param filePath - The raw vault-relative file path (e.g., "/Notes/My File.md" or "Notes/My File.md").
+ * @returns The URL-encoded path suitable for appending to `/vault`.
+ */
+function encodeVaultPath(filePath: string): string {
+    // 1. Trim whitespace and remove any leading/trailing slashes for consistent processing.
+    const trimmedPath = filePath.trim().replace(/^\/+|\/+$/g, '');
+
+    // 2. If the original path was just '/' or empty, return an empty string (represents root for files).
+    if (trimmedPath === '') {
+        // For file operations, the API expects /vault/filename.md at the root,
+        // so an empty encoded path segment is correct here.
+        // For listFiles, we handle the root case separately.
+        return '';
+    }
+
+    // 3. Split into components, encode each component, then rejoin with literal '/'.
+    const encodedComponents = trimmedPath.split('/').map(encodeURIComponent);
+    const encodedPath = encodedComponents.join('/');
+
+    // 4. Prepend the leading slash.
+    return `/${encodedPath}`;
+}
+
+
+/**
  * Gets the content of a specific file in the vault.
  * @param _request - The internal request function from the service instance.
  * @param filePath - Vault-relative path to the file.
@@ -30,9 +59,10 @@ export async function getFileContent(
   context: RequestContext
 ): Promise<string | NoteJson> {
   const acceptHeader = format === 'json' ? 'application/vnd.olrapi.note+json' : 'text/markdown';
+  const encodedPath = encodeVaultPath(filePath); // Use the new encoding function
   return _request<string | NoteJson>({
     method: 'GET',
-    url: `/vault/${encodeURIComponent(filePath)}`,
+    url: `/vault${encodedPath}`, // Construct URL correctly
     headers: { 'Accept': acceptHeader },
   }, context, 'getFileContent');
 }
@@ -51,10 +81,11 @@ export async function updateFileContent(
   content: string,
   context: RequestContext
 ): Promise<void> {
+  const encodedPath = encodeVaultPath(filePath); // Use the new encoding function
   // PUT returns 204 No Content, so the expected type is void
   await _request<void>({
     method: 'PUT',
-    url: `/vault/${encodeURIComponent(filePath)}`,
+    url: `/vault${encodedPath}`, // Construct URL correctly
     headers: { 'Content-Type': 'text/markdown' },
     data: content,
   }, context, 'updateFileContent');
@@ -74,9 +105,10 @@ export async function appendFileContent(
   content: string,
   context: RequestContext
 ): Promise<void> {
+  const encodedPath = encodeVaultPath(filePath); // Use the new encoding function
   await _request<void>({
       method: 'POST',
-      url: `/vault/${encodeURIComponent(filePath)}`,
+      url: `/vault${encodedPath}`, // Construct URL correctly
       headers: { 'Content-Type': 'text/markdown' },
       data: content,
   }, context, 'appendFileContent');
@@ -94,9 +126,10 @@ export async function deleteFile(
   filePath: string,
   context: RequestContext
 ): Promise<void> {
+  const encodedPath = encodeVaultPath(filePath); // Use the new encoding function
   await _request<void>({
     method: 'DELETE',
-    url: `/vault/${encodeURIComponent(filePath)}`,
+    url: `/vault${encodedPath}`, // Construct URL correctly
   }, context, 'deleteFile');
 }
 
@@ -123,8 +156,8 @@ export async function listFiles(
   } else {
       // For non-root paths:
       // 1. Remove any leading/trailing slashes to prevent issues like '/vault//path/' or '/vault/path//'.
-      // 2. URI-encode the remaining path segment to handle special characters safely.
-      pathSegment = encodeURIComponent(pathSegment.replace(/^\/+|\/+$/g, ''));
+      // 2. URI-encode *each component* of the remaining path segment to handle special characters safely.
+      pathSegment = pathSegment.replace(/^\/+|\/+$/g, '').split('/').map(encodeURIComponent).join('/');
   }
 
   // Construct the final URL for the API request:

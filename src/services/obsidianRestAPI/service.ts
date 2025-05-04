@@ -49,12 +49,12 @@ export class ObsidianRestApiService {
       baseURL: config.obsidianBaseUrl.replace(/\/$/, ''), // Remove trailing slash
       headers: {
         'Authorization': `Bearer ${this.apiKey}`,
-        'Accept': 'application/json', // Default accept type
-      },
-      timeout: 15000, // Default timeout of 15 seconds
-      // Configure httpsAgent to handle SSL verification based on config
-      httpsAgent: new https.Agent({
-        rejectUnauthorized: config.obsidianVerifySsl, // Use the boolean value from config
+         'Accept': 'application/json', // Default accept type
+       },
+       timeout: 60000, // Increased timeout to 60 seconds (was 15000)
+       // Configure httpsAgent to handle SSL verification based on config
+       httpsAgent: new https.Agent({
+         rejectUnauthorized: config.obsidianVerifySsl, // Use the boolean value from config
       }),
     });
 
