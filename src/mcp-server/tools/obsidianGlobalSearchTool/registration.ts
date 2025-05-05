@@ -28,8 +28,8 @@ export async function registerObsidianGlobalSearchTool(
   vaultCacheService: VaultCacheService // Added vaultCacheService parameter
 ): Promise<void> {
   const toolName = 'obsidian_global_search';
-  // Updated description to reflect simplified functionality
-  const toolDescription = "Performs search across vault content using text or regex. Supports filtering by modification date.";
+  // Updated description to include searchInPath
+  const toolDescription = `Performs search across the Obsidian vault using text or regex, primarily relying on the Obsidian REST API's simple search. Supports filtering by modification date, optionally restricting search to a specific directory path (recursively), pagination (page, pageSize), and limiting matches shown per file (maxMatchesPerFile). Returns a JSON object containing success status, a message, pagination details (currentPage, pageSize, totalPages), total file/match counts (before pagination), and an array of results. Each result includes the file path, filename, creation timestamp (ctime), modification timestamp (mtime), and an array of match context snippets (limited by maxMatchesPerFile). If there are multiple pages of results, it also includes an 'alsoFoundInFiles' array listing filenames found on other pages.`;
 
   // Create a context for the registration process itself.
   const registrationContext: RequestContext = requestContextService.createRequestContext({
@@ -51,7 +51,7 @@ export async function registerObsidianGlobalSearchTool(
         /**
          * The handler function executed when the 'obsidian_global_search' tool is called.
          *
-         * @param {ObsidianGlobalSearchInput} params - The validated input parameters (no longer includes queryType).
+         * @param {ObsidianGlobalSearchInput} params - The validated input parameters.
          * @param {any} handlerInvocationContext - Context object provided by the SDK.
          * @returns {Promise<any>} A promise resolving to the result object or an McpError instance.
          */
@@ -60,11 +60,14 @@ export async function registerObsidianGlobalSearchTool(
           const handlerContext: RequestContext = requestContextService.createRequestContext({
             operation: 'HandleObsidianGlobalSearchRequest',
             toolName: toolName,
-            // Updated paramsSummary to remove queryType
+            // Updated paramsSummary for pagination, match limit, and path filter
             paramsSummary: {
                 useRegex: params.useRegex,
                 caseSensitive: params.caseSensitive,
-                maxResults: params.maxResults,
+                pageSize: params.pageSize,
+                page: params.page,
+                maxMatchesPerFile: params.maxMatchesPerFile,
+                searchInPath: params.searchInPath, // Added searchInPath
                 hasDateFilter: !!(params.modified_since || params.modified_until)
             }
           });
