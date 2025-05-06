@@ -6,7 +6,7 @@
 [![Obsidian Local REST API](https://img.shields.io/badge/Requires-Obsidian_Local_REST_API-purple.svg)](https://github.com/coddingtonbear/obsidian-local-rest-api)
 [![Version](https://img.shields.io/badge/Version-1.1.1-blue.svg)](./CHANGELOG.md)
 [![License](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](https://opensource.org/licenses/Apache-2.0)
-[![Status](https://img.shields.io/badge/Status-Stable-green.svg)](https://github.com/casey/obsidian-mcp-server/issues)
+[![Status](https://img.shields.io/badge/Status-Development-orange.svg)](https://github.com/casey/obsidian-mcp-server/issues)
 [![GitHub](https://img.shields.io/github/stars/casey/obsidian-mcp-server?style=social)](https://github.com/casey/obsidian-mcp-server)
 
 **Connect your AI models to your Obsidian vault!**
