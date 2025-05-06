@@ -22,15 +22,11 @@ Implemented as an MCP server, it allows LLM agents and other compatible clients 
 
 ## Table of Contents
 
-- [Overview](#overview)
-- [Features](#features)
-- [Installation](#installation)
-- [Configuration](#configuration)
-- [Project Structure](#project-structure)
-- [Tools](#tools)
-- [Resources](#resources)
-- [Development](#development)
-- [License](#license)
+| [Overview](#overview) | [Features](#features) | [Installation](#installation) |
+
+| [Configuration](#configuration) | [Project Structure](#project-structure) | [Tools](#tools) |
+
+| [Resources](#resources) | [Development](#development) | [License](#license) |
 
 ## Overview
 
@@ -169,14 +165,14 @@ For a detailed file tree, run `npm run tree` or see [docs/tree.md](docs/tree.md)
 
 The Obsidian MCP Server provides a suite of tools for interacting with your vault, callable via the Model Context Protocol.
 
-| Tool Name                 | Description                                                                                                                                 | Implementation Link                                                                                |
-| :------------------------ | :------------------------------------------------------------------------------------------------------------------------------------------ | :------------------------------------------------------------------------------------------------- |
-| `obsidian_delete_file`    | Permanently deletes a specified file from the vault. Tries exact path, then case-insensitive fallback.                                      | [src/mcp-server/tools/obsidianDeleteFileTool/](src/mcp-server/tools/obsidianDeleteFileTool/)       |
+| Tool Name                 | Description                                                                                                                                         | Implementation Link                                                                                |
+| :------------------------ | :-------------------------------------------------------------------------------------------------------------------------------------------------- | :------------------------------------------------------------------------------------------------- |
+| `obsidian_delete_file`    | Permanently deletes a specified file from the vault. Tries exact path, then case-insensitive fallback.                                              | [src/mcp-server/tools/obsidianDeleteFileTool/](src/mcp-server/tools/obsidianDeleteFileTool/)       |
 | `obsidian_global_search`  | Performs search across vault content using text or regex. Supports filtering by modification date, path, pagination, and limiting matches per file. | [src/mcp-server/tools/obsidianGlobalSearchTool/](src/mcp-server/tools/obsidianGlobalSearchTool/)   |
-| `obsidian_list_files`     | Lists files and subdirectories within a specified vault folder. Supports filtering by extension or name regex.                              | [src/mcp-server/tools/obsidianListFilesTool/](src/mcp-server/tools/obsidianListFilesTool/)         |
-| `obsidian_read_file`      | Retrieves the content and metadata of a specified file. Supports markdown or JSON format. Tries exact path, then case-insensitive fallback. | [src/mcp-server/tools/obsidianReadFileTool/](src/mcp-server/tools/obsidianReadFileTool/)           |
-| `obsidian_search_replace` | Performs search-and-replace operations within a target note (file path, active, or periodic). Supports regex, case sensitivity, etc.        | [src/mcp-server/tools/obsidianSearchReplaceTool/](src/mcp-server/tools/obsidianSearchReplaceTool/) |
-| `obsidian_update_file`    | Modifies notes using whole-file operations: 'append', 'prepend', or 'overwrite'. Can create missing files/targets.                          | [src/mcp-server/tools/obsidianUpdateFileTool/](src/mcp-server/tools/obsidianUpdateFileTool/)       |
+| `obsidian_list_files`     | Lists files and subdirectories within a specified vault folder. Supports filtering by extension or name regex.                                      | [src/mcp-server/tools/obsidianListFilesTool/](src/mcp-server/tools/obsidianListFilesTool/)         |
+| `obsidian_read_file`      | Retrieves the content and metadata of a specified file. Supports markdown or JSON format. Tries exact path, then case-insensitive fallback.         | [src/mcp-server/tools/obsidianReadFileTool/](src/mcp-server/tools/obsidianReadFileTool/)           |
+| `obsidian_search_replace` | Performs search-and-replace operations within a target note (file path, active, or periodic). Supports regex, case sensitivity, etc.                | [src/mcp-server/tools/obsidianSearchReplaceTool/](src/mcp-server/tools/obsidianSearchReplaceTool/) |
+| `obsidian_update_file`    | Modifies notes using whole-file operations: 'append', 'prepend', or 'overwrite'. Can create missing files/targets.                                  | [src/mcp-server/tools/obsidianUpdateFileTool/](src/mcp-server/tools/obsidianUpdateFileTool/)       |
 
 Refer to the tool implementation directories and the [.clinerules](.clinerules) cheatsheet for detailed input schemas and usage patterns.
 
