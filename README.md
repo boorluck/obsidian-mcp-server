@@ -201,9 +201,6 @@ npm run start:stdio
 # Test the server locally using http transport
 npm run start:http
 
-# Clean build artifacts (runs scripts/clean.ts)
-# npm run clean # (Add this script to package.json if needed)
-
 # Generate a file tree representation for documentation (runs scripts/tree.ts)
 npm run tree
 
