@@ -26,9 +26,13 @@
     "rebuild": "ts-node --esm scripts/clean.ts && npm run build",
     "fetch:spec": "ts-node --esm scripts/fetch-openapi-spec.ts",
     "docs:generate": "typedoc",
-    "tree": "ts-node --esm scripts/tree.ts"
+    "tree": "ts-node --esm scripts/tree.ts",
+    "inspect": "mcp-inspector --config mcp.json",
+    "inspect:stdio": "mcp-inspector --config mcp.json --server obsidian-mcp-server-stdio",
+    "inspect:http": "mcp-inspector --config mcp.json --server obsidian-mcp-server-http"
   },
   "dependencies": {
+    "@modelcontextprotocol/inspector": "^0.11.0",
     "@modelcontextprotocol/sdk": "^1.11.0",
     "@types/jsonwebtoken": "^9.0.9",
     "@types/sanitize-html": "^2.15.0",
