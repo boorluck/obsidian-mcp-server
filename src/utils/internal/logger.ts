@@ -31,6 +31,30 @@ const mcpToWinstonLevel: Record<McpLogLevel, 'debug' | 'info' | 'warn' | 'error'
 // Type for the MCP notification sender function
 export type McpNotificationSender = (level: McpLogLevel, data: any, loggerName?: string) => void;
 
+const createConsoleFormat = () => winston.format.combine(
+  winston.format.colorize(),
+  winston.format.timestamp({ format: 'YYYY-MM-DD HH:mm:ss' }),
+  winston.format.printf(({ timestamp, level, message, ...meta }) => {
+    let metaString = '';
+    const metaCopy = { ...meta };
+    if (metaCopy.error && typeof metaCopy.error === 'object') {
+      const errorObj = metaCopy.error as any;
+      if (errorObj.message) metaString += `\n  Error: ${errorObj.message}`;
+      if (errorObj.stack) metaString += `\n  Stack: ${String(errorObj.stack).split('\n').map((l: string) => `    ${l}`).join('\n')}`;
+      delete metaCopy.error;
+    }
+    if (Object.keys(metaCopy).length > 0) {
+       try {
+          const remainingMetaJson = JSON.stringify(metaCopy, null, 2);
+          if (remainingMetaJson !== '{}') metaString += `\n  Meta: ${remainingMetaJson}`;
+       } catch (stringifyError) {
+          metaString += `\n  Meta: [Error stringifying metadata: ${(stringifyError as Error).message}]`;
+       }
+    }
+    return `${timestamp} ${level}: ${message}${metaString}`;
+  })
+);
+
 // Resolve __dirname for ESM
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -74,7 +98,7 @@ class Logger {
    */
   public async initialize(level: McpLogLevel = 'info'): Promise<void> {
     if (this.initialized) {
-      console.warn('Logger already initialized.');
+      if (process.stdout.isTTY) console.warn('Logger already initialized.');
       return;
     }
     this.currentMcpLevel = level;
@@ -85,12 +109,14 @@ class Logger {
       try {
         if (!fs.existsSync(resolvedLogsDir)) {
           fs.mkdirSync(resolvedLogsDir, { recursive: true });
-          console.log(`Created logs directory: ${resolvedLogsDir}`);
+          if (process.stdout.isTTY) console.log(`Created logs directory: ${resolvedLogsDir}`);
         }
       } catch (err: any) {
-        console.error(
-          `Error creating logs directory at ${resolvedLogsDir}: ${err.message}. File logging disabled.`
-        );
+        if (process.stdout.isTTY) {
+            console.error(
+              `Error creating logs directory at ${resolvedLogsDir}: ${err.message}. File logging disabled.`
+            );
+        }
       }
     }
 
@@ -113,43 +139,20 @@ class Logger {
         new winston.transports.File({ filename: path.join(resolvedLogsDir, 'combined.log'), format: fileFormat })
       );
     } else {
-       console.warn("File logging disabled due to unsafe logs directory path.");
+       if (process.stdout.isTTY) console.warn("File logging disabled due to unsafe logs directory path.");
     }
 
     // Conditionally add Console transport only if:
     // 1. MCP level is 'debug'
     // 2. stdout is a TTY (interactive terminal, not piped)
     if (this.currentMcpLevel === 'debug' && process.stdout.isTTY) {
-      const consoleFormat = winston.format.combine(
-        winston.format.colorize(),
-        winston.format.timestamp({ format: 'YYYY-MM-DD HH:mm:ss' }),
-        winston.format.printf(({ timestamp, level, message, ...meta }) => {
-          let metaString = '';
-          const metaCopy = { ...meta };
-          if (metaCopy.error && typeof metaCopy.error === 'object') {
-            const errorObj = metaCopy.error as any;
-            if (errorObj.message) metaString += `\n  Error: ${errorObj.message}`;
-            if (errorObj.stack) metaString += `\n  Stack: ${String(errorObj.stack).split('\n').map((l: string) => `    ${l}`).join('\n')}`;
-            delete metaCopy.error;
-          }
-          if (Object.keys(metaCopy).length > 0) {
-             try {
-                const remainingMetaJson = JSON.stringify(metaCopy, null, 2);
-                if (remainingMetaJson !== '{}') metaString += `\n  Meta: ${remainingMetaJson}`;
-             } catch (stringifyError) {
-                metaString += `\n  Meta: [Error stringifying metadata: ${(stringifyError as Error).message}]`;
-             }
-          }
-          return `${timestamp} ${level}: ${message}${metaString}`;
-        })
-      );
       transports.push(new winston.transports.Console({
         level: 'debug',
-        format: consoleFormat,
+        format: createConsoleFormat(),
       }));
-      console.log(`Console logging enabled at level: debug (stdout is TTY)`);
+      if (process.stdout.isTTY) console.log(`Console logging enabled at level: debug (stdout is TTY)`);
     } else if (this.currentMcpLevel === 'debug' && !process.stdout.isTTY) {
-        console.log(`Console logging skipped: Level is debug, but stdout is not a TTY (likely stdio transport).`);
+        // No console.log here, as it would go to stdio and break JSON parsing
     }
 
     // Create logger with the initial Winston level and configured transports
@@ -178,7 +181,7 @@ class Logger {
    */
   public setLevel(newLevel: McpLogLevel): void {
     if (!this.ensureInitialized()) {
-      console.error("Cannot set level: Logger not initialized.");
+      if (process.stdout.isTTY) console.error("Cannot set level: Logger not initialized.");
       return;
     }
     if (!(newLevel in mcpLevelSeverity)) {
@@ -197,8 +200,7 @@ class Logger {
 
     if (shouldHaveConsole && !consoleTransport) {
         // Add console transport
-        const consoleFormat = winston.format.combine(/* ... same format as in initialize ... */); // TODO: Extract format to avoid duplication
-        this.winstonLogger!.add(new winston.transports.Console({ level: 'debug', format: consoleFormat }));
+        this.winstonLogger!.add(new winston.transports.Console({ level: 'debug', format: createConsoleFormat() }));
         this.info('Console logging dynamically enabled.');
     } else if (!shouldHaveConsole && consoleTransport) {
         // Remove console transport
