@@ -68,5 +68,8 @@
     "knowledge-base"
   ],
   "author": "Casey Hand @cyanheads",
-  "license": "Apache-2.0"
+  "license": "Apache-2.0",
+  "volta": {
+    "node": "20.19.2"
+  }
 }
